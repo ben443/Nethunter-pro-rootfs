@@ -86,10 +86,10 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
     fi
 
     echo "Creating boot image for ${FULLMODEL}..."
-    cat /boot/vmlinuz-${KERNEL_VERSION} ${DTB_FILE} > /tmp/kernel-dtb
+    cat /boot/vmlinuz-${KERNEL_VERSION} > /tmp/kernel
 
     # Create the bootimg as it's the only format recognized by the Android bootloader
     mkbootimg -o /boot_${FULLMODEL}_`date +%Y%m%d`.img ${BOOTIMG_ARGS} \
-        --kernel /tmp/kernel-dtb --ramdisk /boot/initrd.img-${KERNEL_VERSION} \
+        --kernel /tmp/kernel --ramdisk /boot/initrd.img-${KERNEL_VERSION} \
         --cmdline "mobile.root=${ROOTPART} ${CMDLINE} init=/sbin/init ro ${LOGLEVEL} splash"
 done
