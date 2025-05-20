@@ -23,7 +23,7 @@ do
         m ) mobian_suite="$OPTARG" ;;
         M ) MIRROR="$OPTARG" ;;
         c ) compress=1 ;;
-        b ) blockmap=1 ;;
+        b ) blockmap=0 ;;
     esac
 done
 
