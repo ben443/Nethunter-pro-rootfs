@@ -2,7 +2,7 @@
 
 . ./funcs.sh
 
-device="pinephone"
+device="sm7325"
 environment="phosh"
 hostname="fossfrog"
 username="kali"
