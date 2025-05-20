@@ -104,15 +104,11 @@ echo '[+]Stage 2: Debootstrap second stage and adding Mobian apt repo'
 [ -e ${ROOTFS}/etc/passwd ] && echo '[*]Second Stage already done' || nspawn-exec /debootstrap/debootstrap --second-stage
 mkdir -p ${ROOTFS}/etc/apt/sources.list.d ${ROOTFS}/etc/apt/trusted.gpg.d
 sed -i 's/main/main contrib non-free non-free-firmware/g' ${ROOTFS}/etc/apt/sources.list
-echo "deb http://repo.mobian.org/ ${mobian_suite} main non-free-firmware" > ${ROOTFS}/etc/apt/sources.list.d/mobian.list
-curl -L http://repo.mobian.org/mobian.gpg -o ${ROOTFS}/etc/apt/trusted.gpg.d/mobian.gpg
-chmod 644 ${ROOTFS}/etc/apt/trusted.gpg.d/mobian.gpg
+echo "deb https://repo.droidian.org/ ${droidian_suite} main" > ${ROOTFS}/etc/apt/sources.list.d/droidian.list
+mkdir -p ${ROOTFS}/usr/share/droidian-archive-keyring
+curl -L https://repo.droidian.org/droidian.gpg -o ${ROOTFS}/usr/share/droidian-archive-keyring/droidian-archive-keyring.gpg 
+chmod 644 ${ROOTFS}/usr/share/droidian-archive-keyring/droidian-archive-keyring.gpg
 
-cat << EOF > ${ROOTFS}/etc/apt/preferences.d/00-mobian-priority
-Package: *
-Pin: release o=Mobian
-Pin-Priority: 700
-EOF
 
 ROOT_UUID=`python3 -c 'from uuid import uuid4; print(uuid4())'`
 BOOT_UUID=`python3 -c 'from uuid import uuid4; print(uuid4())'`
