@@ -103,12 +103,11 @@ jobs:
           set -euo pipefail
           mkdir -p workflow-artifacts
           shopt -s nullglob
-          artifacts=(
-            *.img
-            *.img.xz
-            *.bmap
-            *.tgz
-          )
+          artifacts=()
+          artifacts+=( *.img )
+          artifacts+=( *.img.xz )
+          artifacts+=( *.bmap )
+          artifacts+=( *.tgz )
           if (( ${#artifacts[@]} == 0 )); then
             echo 'No build artifacts were generated.' >&2
             exit 1
@@ -125,7 +124,7 @@ jobs:
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
         with:
-          name: kali-rootfs-${{ inputs.device }}-${{ inputs.environment }}-${{ github.run_number }}
+          name: nethunter-pro-rootfs-${{ inputs.device }}-${{ inputs.environment }}-${{ github.run_number }}
           retention-days: 14
           if-no-files-found: error
           path: workflow-artifacts/*
