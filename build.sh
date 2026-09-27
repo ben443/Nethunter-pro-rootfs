@@ -413,9 +413,6 @@ def iter_node_bodies(source):
             start = stack.pop()
             yield source[start + 1:index]
 
-
-node_bodies = list(iter_node_bodies(text))
-
 framebuffer_match = re.search(r"framebuffer@9c000000\s*\{", text)
 if not framebuffer_match:
     raise SystemExit("Missing r8q DT framebuffer node")
@@ -433,7 +430,7 @@ if len(power_domain_values) < 2:
 dispcc_body = next(
     (
         node_body
-        for node_body in node_bodies
+        for node_body in iter_node_bodies(text)
         if re.search(r'compatible\s*=\s*"qcom,sm8250-dispcc";', node_body)
     ),
     None,
@@ -455,7 +452,7 @@ if not panel_values:
     raise SystemExit("Missing r8q DT framebuffer panel marker")
 
 panel_info_phandles = set()
-for node_body in node_bodies:
+for node_body in iter_node_bodies(text):
     if not (
         re.search(r"width-mm\s*=\s*<68>;", node_body)
         and re.search(r"height-mm\s*=\s*<151>;", node_body)
