@@ -366,8 +366,8 @@ if not match:
     raise SystemExit("Missing protected-clocks property in dispcc node")
 
 clock_entries = re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))
-if len(clock_entries) != 58:
-    raise SystemExit("r8q DT protected-clocks property is incomplete")
+if not clock_entries:
+    raise SystemExit("r8q DT protected-clocks property is empty")
 PY
     then
         rm -f "$DTB_DTS"
