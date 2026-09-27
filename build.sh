@@ -153,15 +153,15 @@ nspawn-exec apt install -y ${DPACKAGES}
 if [ "$device" = "r8q" ]
 then
     echo '[*]Preparing r8q firmware paths expected by the mainline device tree'
-    mkdir -p "${ROOTFS}/usr/lib/firmware/qcom/sm8250/Samsung/r8q"
+    nspawn-exec mkdir -p /usr/lib/firmware/qcom/sm8250/Samsung/r8q
     for firmware in adsp.mbn cdsp.mbn slpi.mbn
     do
-        [ -f "${ROOTFS}/usr/lib/firmware/qcom/sm8250/${firmware}" ] || {
+        nspawn-exec test -f "/usr/lib/firmware/qcom/sm8250/${firmware}" || {
             echo "Missing required r8q firmware file: ${firmware}" >&2
             exit 1
         }
-        ln -srf "${ROOTFS}/usr/lib/firmware/qcom/sm8250/${firmware}" \
-            "${ROOTFS}/usr/lib/firmware/qcom/sm8250/Samsung/r8q/${firmware}"
+        nspawn-exec ln -srf "/usr/lib/firmware/qcom/sm8250/${firmware}" \
+            "/usr/lib/firmware/qcom/sm8250/Samsung/r8q/${firmware}"
     done
 fi
 
