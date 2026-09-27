@@ -58,6 +58,7 @@ jobs:
             binfmt-support \
             ca-certificates \
             curl \
+            debos \
             debootstrap \
             device-tree-compiler \
             gnupg \
@@ -96,12 +97,30 @@ jobs:
 
           sudo ./build.sh "${args[@]}"
 
+      - name: Collect generated artifacts
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p workflow-artifacts
+          shopt -s nullglob
+          artifacts=(
+            *.img
+            *.img.xz
+            *.bmap
+            *.tgz
+          )
+          if (( ${#artifacts[@]} == 0 )); then
+            echo 'No build artifacts were generated.' >&2
+            exit 1
+          fi
+          cp -- "${artifacts[@]}" workflow-artifacts/
+
       - name: List generated artifacts
         shell: bash
         run: |
           set -euo pipefail
           ls -lh .
-          ls -lh kali_${{ inputs.environment }}_${{ inputs.device }}_* || true
+          ls -lh workflow-artifacts
 
       - name: Upload build artifacts
         uses: actions/upload-artifact@v4
@@ -109,8 +128,4 @@ jobs:
           name: kali-rootfs-${{ inputs.device }}-${{ inputs.environment }}-${{ github.run_number }}
           retention-days: 14
           if-no-files-found: error
-          path: |
-            kali_${{ inputs.environment }}_${{ inputs.device }}_*.img
-            kali_${{ inputs.environment }}_${{ inputs.device }}_*.img.xz
-            kali_${{ inputs.environment }}_${{ inputs.device }}_*.bmap
-            kali_${{ inputs.environment }}_${{ inputs.device }}_*.tgz
+          path: workflow-artifacts/*
