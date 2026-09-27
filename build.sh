@@ -189,6 +189,7 @@ EOF
                 esac
             fi
             source_path="$(readlink -f "$source_path")"
+            rm -f "$dest_dir/$firmware"
             ln -srf "$source_path" "$dest_dir/$firmware"
         done
     '
@@ -336,7 +337,7 @@ if not match:
     raise SystemExit("Missing protected-clocks property in dispcc node")
 
 clock_entries = re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))
-if len(clock_entries) < 58:
+if len(clock_entries) != 58:
     raise SystemExit("r8q DT protected-clocks property is incomplete")
 PY
     ) || exit 1
