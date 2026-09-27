@@ -35,13 +35,51 @@ bootimg_offsets() {
     echo "${ARGS}"
 }
 
+resolve_kernel_version() {
+    for kernel_path in /boot/vmlinuz-*; do
+        [ -f "${kernel_path}" ] || continue
+        version="${kernel_path#/boot/vmlinuz-}"
+        if [ -f "/boot/initrd.img-${version}" ] || \
+           [ -f "/boot/initramfs-${version}.img" ]
+        then
+            printf '%s\n' "${version}"
+        fi
+    done | sort -V | tail -1
+}
+
+resolve_ramdisk_path() {
+    version="$1"
+    for candidate in "/boot/initrd.img-${version}" "/boot/initramfs-${version}.img"; do
+        [ -f "${candidate}" ] && printf '%s\n' "${candidate}" && return 0
+    done
+    return 1
+}
+
+resolve_dtb_path() {
+    dtb_name="$1"
+    for candidate in \
+        "/usr/lib/linux-image-${KERNEL_VERSION}/qcom/${dtb_name}" \
+        "/usr/lib/linux-image-${KERNEL_VERSION}/${dtb_name}" \
+        "/usr/lib/modules/${KERNEL_VERSION}/${dtb_name}" \
+        "/usr/lib/modules/${KERNEL_VERSION}/kernel/arch/arm64/boot/dts/qcom/${dtb_name}"
+    do
+        [ -f "${candidate}" ] && printf '%s\n' "${candidate}" && return 0
+    done
+    return 1
+}
+
 ROOTPART=$(grep -P '^UUID.*[ \t]/[ \t]' /etc/fstab | awk '{print $1}')
 
 if [ "${ROOTPART}" = "UUID=" ]; then
     # This means we're using an encrypted rootfs
     ROOTPART="/dev/mapper/root"
 fi
-KERNEL_VERSION=$(linux-version list | tail -1)
+KERNEL_VERSION="$(resolve_kernel_version)"
+[ -n "${KERNEL_VERSION}" ] || {
+    echo "ERROR: Unable to locate a bootable kernel and initramfs pair" >&2
+    exit 1
+}
+RAMDISK_PATH="$(resolve_ramdisk_path "${KERNEL_VERSION}")"
 
 # Parse config for generic parameters for the current SoC
 SOC=$(tomlq -r "if .chipset then .chipset else \"${DEVICE}\" end" ${CONFIG})
@@ -64,12 +102,16 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
     else
         FULLMODEL="${MODEL}"
     fi
-    DTB_FILE="/usr/lib/linux-image-${KERNEL_VERSION}/qcom/${DEVICE_SOC}-${VENDOR}-${FULLMODEL}.dtb"
+    DTB_FILE="$(resolve_dtb_path "${DEVICE_SOC}-${VENDOR}-${FULLMODEL}.dtb")"
+    ROOT_CMDLINE="mobile.root=${ROOTPART}"
 
     LOGLEVEL="quiet"
     # Include additional cmdline args if specified
     if [ "${APPEND}" ]; then
         CMDLINE="${CMDLINE} ${APPEND}"
+        if echo "${APPEND}" | grep -q 'mobile.root='; then
+            ROOT_CMDLINE=""
+        fi
         if echo "${APPEND}" | grep -q "console="; then
             LOGLEVEL="loglevel=7"
         fi
@@ -82,6 +124,10 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
     fi
 
     if echo "${BOOTIMG_ARGS}" | grep -q "dtb_offset"; then
+        [ -n "${DTB_FILE}" ] || {
+            echo "ERROR: Unable to locate DTB for ${FULLMODEL}" >&2
+            exit 1
+        }
         BOOTIMG_ARGS="${BOOTIMG_ARGS} --dtb ${DTB_FILE}"
     fi
 
@@ -90,6 +136,6 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
 
     # Create the bootimg as it's the only format recognized by the Android bootloader
     mkbootimg -o /boot_${FULLMODEL}_`date +%Y%m%d`.img ${BOOTIMG_ARGS} \
-        --kernel /tmp/kernel-dtb --ramdisk /boot/initrd.img-${KERNEL_VERSION} \
-        --cmdline "mobile.root=${ROOTPART} ${CMDLINE} init=/sbin/init ro ${LOGLEVEL} splash"
+        --kernel /tmp/kernel-dtb --ramdisk ${RAMDISK_PATH} \
+        --cmdline "${ROOT_CMDLINE} ${CMDLINE} init=/sbin/init ro ${LOGLEVEL} splash"
 done

@@ -91,6 +91,7 @@ jobs:
             bmap-tools \
             xz-utils \
             android-sdk-libsparse-utils \
+            device-tree-compiler \
             yq \
             mkbootimg \
             cryptsetup \

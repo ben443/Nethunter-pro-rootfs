@@ -27,6 +27,9 @@ do
     esac
 done
 
+BOOTLOADER_DEVICE="$device"
+DEVICE_PACKAGES=""
+
 case "$device" in
   "pinephone"|"pinetab"|"sunxi" )
     arch="arm64"
@@ -40,13 +43,14 @@ case "$device" in
     SERVICES="eg25-manager"
     PACKAGES="megapixels megapixels-config-pinephonepro"
     ;;
-  "pocof1"|"oneplus6"|"oneplus6t"|"sdm845"|"qcom"|"sm8250"| )
+  "pocof1"|"oneplus6"|"oneplus6t"|"sdm845"|"qcom"|"sm8250"|"r8q" )
     arch="arm64"
     family="qcom"
     SERVICES="qrtr-ns rmtfs pd-mapper tqftpserv qcom-modem-setup droid-juicer"
     PACKAGES="pulseaudio yq qbootctl"
     PARTITIONS=1
     SPARSE=1
+    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc firmware-atheros"
     ;;
   "nothingphone1"|"sm7325" )
     arch="arm64"
@@ -64,6 +68,7 @@ esac
 
 PACKAGES="${PACKAGES} kali-linux-core wget vim binutils rsync systemd-timesyncd systemd-repart"
 DPACKAGES="${family}-support"
+[ -n "${DEVICE_PACKAGES}" ] && DPACKAGES="${DPACKAGES} ${DEVICE_PACKAGES}"
 
 case "${environment}" in
     phosh)
@@ -145,6 +150,261 @@ nspawn-exec sh -c "$(curl -fsSL https://repo.fossfrog.in/setup.sh)"
 nspawn-exec apt install -y ${PACKAGES}
 nspawn-exec apt install -y ${DPACKAGES}
 
+if [ "$device" = "r8q" ]
+then
+    echo '[*]Preparing r8q firmware paths expected by the mainline device tree'
+    nspawn-exec sh -eu -c '
+        dest_dir=/usr/lib/firmware/qcom/sm8250/Samsung/r8q
+        mkdir -p "$dest_dir"
+        for firmware in adsp.mbn cdsp.mbn slpi.mbn
+        do
+            preferred_path="/usr/lib/firmware/qcom/sm8250/$firmware"
+            [ -f "$preferred_path" ] || {
+                echo "Missing required r8q firmware file: $preferred_path" >&2
+                exit 1
+            }
+            source_path="$preferred_path"
+            source_path="$(readlink -f "$source_path")"
+            rm -f "$dest_dir/$firmware"
+            ln -srf "$source_path" "$dest_dir/$firmware"
+        done
+    '
+
+    echo '[*]Validating r8q kernel config and DT patch markers'
+    KERNEL_VERSION="$(
+        for kernel_path in "${ROOTFS}"/boot/vmlinuz-*; do
+            [ -f "$kernel_path" ] || continue
+            version="${kernel_path##*/vmlinuz-}"
+            printf '%s\n' "$version"
+        done | sort -V | tail -1
+    )"
+    [ -n "$KERNEL_VERSION" ] || {
+        echo "Unable to locate an installed r8q kernel image" >&2
+        exit 1
+    }
+    (
+        set -e
+        conf_file="${ROOTFS}/etc/initramfs-tools/conf.d/r8q-modules.conf"
+        hook_file="${ROOTFS}/etc/initramfs-tools/hooks/r8q-modules"
+        conf_backup=""
+        hook_backup=""
+
+        cleanup_r8q_initramfs_overrides() {
+            if [ -n "$conf_backup" ]
+            then
+                cp -a "$conf_backup" "$conf_file"
+            else
+                rm -f "$conf_file"
+            fi
+            if [ -n "$hook_backup" ]
+            then
+                cp -a "$hook_backup" "$hook_file"
+            else
+                rm -f "$hook_file"
+            fi
+            [ -n "$conf_backup" ] && rm -f "$conf_backup"
+            [ -n "$hook_backup" ] && rm -f "$hook_backup"
+        }
+
+        trap cleanup_r8q_initramfs_overrides EXIT
+
+        mkdir -p "${ROOTFS}/etc/initramfs-tools/conf.d" "${ROOTFS}/etc/initramfs-tools/hooks"
+        if [ -e "$conf_file" ]
+        then
+            conf_backup="$(mktemp /tmp/r8q-initramfs-conf.XXXXXX)"
+            cp -a "$conf_file" "$conf_backup"
+        fi
+        if [ -e "$hook_file" ]
+        then
+            hook_backup="$(mktemp /tmp/r8q-initramfs-hook.XXXXXX)"
+            cp -a "$hook_file" "$hook_backup"
+        fi
+
+        printf '%s\n' 'MODULES=most' > "$conf_file"
+        cat <<'EOF' > "$hook_file"
+#!/bin/sh
+set -e
+. /usr/share/initramfs-tools/hook-functions
+
+while IFS= read -r initramfs_module
+do
+    [ -n "$initramfs_module" ] || continue
+    case "$initramfs_module" in
+        \#*) continue ;;
+    esac
+    manual_add_modules "$initramfs_module"
+done <<'MODULES_EOF'
+EOF
+        cat r8q.initramfs-modules >> "$hook_file"
+        cat <<'EOF' >> "$hook_file"
+MODULES_EOF
+EOF
+        chmod 0755 "$hook_file"
+
+        rm -f "${ROOTFS}/boot/initrd.img" "${ROOTFS}/boot/initramfs.img"
+        nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
+        staged_ramdisk=""
+        staged_destination=""
+        for candidate in \
+            "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" \
+            "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" \
+            "${ROOTFS}/boot/initrd.img" \
+            "${ROOTFS}/boot/initramfs.img"
+        do
+            [ -f "$candidate" ] || continue
+            staged_ramdisk="$candidate"
+            case "${candidate##*/}" in
+                initrd.img|initrd.img-*)
+                    staged_destination="${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}"
+                    ;;
+                initramfs.img|initramfs-*.img)
+                    staged_destination="${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img"
+                    ;;
+            esac
+            break
+        done
+        [ -n "$staged_ramdisk" ] || {
+            echo "Unable to create a bootable r8q initramfs for kernel ${KERNEL_VERSION}" >&2
+            exit 1
+        }
+        if [ "$staged_ramdisk" != "$staged_destination" ]
+        then
+            rm -f "$staged_destination"
+            cp -a "$staged_ramdisk" "$staged_destination"
+        fi
+        if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
+           [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+        then
+            echo "Unable to match a regenerated initramfs to r8q kernel ${KERNEL_VERSION}" >&2
+            exit 1
+        fi
+    )
+    KERNEL_CONFIG=""
+    for config_path in \
+        "${ROOTFS}/boot/config-${KERNEL_VERSION}" \
+        "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/config" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/config" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/.config"
+    do
+        if [ -f "$config_path" ]
+        then
+            KERNEL_CONFIG="$config_path"
+            break
+        fi
+    done
+    [ -n "$KERNEL_CONFIG" ] || {
+        echo "Unable to locate kernel config for r8q kernel ${KERNEL_VERSION}" >&2
+        exit 1
+    }
+    while IFS= read -r expected_config
+    do
+        [ -n "$expected_config" ] || continue
+        case "$expected_config" in
+            '# CONFIG_'*' is not set')
+                grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
+                    echo "Missing required r8q kernel config: $expected_config" >&2
+                    exit 1
+                }
+                ;;
+            \#*)
+                continue
+                ;;
+            CONFIG_*=y)
+                config_name="${expected_config%%=*}"
+                if grep -qxF "$config_name" r8q.config-modular-ok
+                then
+                    grep -qxF "${config_name}=y" "$KERNEL_CONFIG" || \
+                    grep -qxF "${config_name}=m" "$KERNEL_CONFIG" || {
+                        echo "Missing required r8q kernel config: ${config_name}=y|m" >&2
+                        exit 1
+                    }
+                else
+                    grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
+                        echo "Missing required r8q kernel config: $expected_config" >&2
+                        exit 1
+                    }
+                fi
+                ;;
+            *)
+                grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
+                    echo "Missing required r8q kernel config: $expected_config" >&2
+                    exit 1
+                }
+                ;;
+        esac
+    done < r8q.config
+
+    DTB_PATH=""
+    for dtb_candidate in \
+        "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/kernel/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtb-${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtb-${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtbs/${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtbs/${KERNEL_VERSION}/sm8250-samsung-r8q.dtb"
+    do
+        if [ -f "$dtb_candidate" ]
+        then
+            DTB_PATH="$dtb_candidate"
+            break
+        fi
+    done
+    [ -n "$DTB_PATH" ] || {
+        echo "Missing required r8q DTB artifact for kernel ${KERNEL_VERSION}" >&2
+        exit 1
+    }
+    DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
+    if command -v dtc >/dev/null 2>&1
+    then
+        if ! dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
+        then
+            rm -f "$DTB_DTS"
+            echo "Failed to decompile r8q DTB with dtc" >&2
+            exit 1
+        fi
+    else
+        rm -f "$DTB_DTS"
+        echo "Missing dtc; install device-tree-compiler to validate the r8q DT patch" >&2
+        exit 1
+    fi
+    if ! python3 - "$DTB_DTS" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
+
+framebuffer_checks = (
+    (r"framebuffer@9c000000\s*\{.*?power-domains\s*=\s*<&dispcc\s+MDSS_GDSC>;", "Missing r8q DT framebuffer power-domains marker"),
+    (r"framebuffer@9c000000\s*\{.*?panel\s*=\s*<&fb_panel>;", "Missing r8q DT framebuffer panel marker"),
+    (r"fb_panel:\s*panel-info\s*\{.*?width-mm\s*=\s*<68>;.*?height-mm\s*=\s*<151>;", "Missing r8q DT framebuffer panel-info size markers"),
+)
+for pattern, message in framebuffer_checks:
+    if not re.search(pattern, text, re.S):
+        raise SystemExit(message)
+
+match = re.search(r'"qcom,sm8250-dispcc".*?protected-clocks\s*=\s*<([^>]+)>;', text, re.S)
+if not match:
+    raise SystemExit("Missing protected-clocks property in dispcc node")
+
+clock_entries = re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))
+clock_values = {int(token, 0) for token in clock_entries}
+missing_clocks = [str(index) for index in range(58) if index not in clock_values]
+if missing_clocks:
+    raise SystemExit(
+        "r8q DT protected-clocks property is missing required clock ids: "
+        + ", ".join(missing_clocks)
+    )
+PY
+    then
+        rm -f "$DTB_DTS"
+        exit 1
+    fi
+    rm -f "$DTB_DTS"
+fi
+
 echo '[+]Stage 4: Adding some extra tweaks'
 if [ ! -e "${ROOTFS}/etc/repart.d/50-root.conf" ]
 then
@@ -209,9 +469,10 @@ then
     #nspawn-exec sudo -u ${username} systemctl --user disable pipewire pipewire-pulse
     #nspawn-exec sudo -u ${username} systemctl --user mask pipewire pipewire-pulse
     #nspawn-exec sudo -u ${username} systemctl --user enable pulseaudio
+    [ -f "bin/configs/${BOOTLOADER_DEVICE}.toml" ] || BOOTLOADER_DEVICE="${family}"
     cp -r bin/bootloader.sh bin/configs ${ROOTFS}
     chmod +x ${ROOTFS}/bootloader.sh
-    nspawn-exec /bootloader.sh ${family}
+    nspawn-exec /bootloader.sh ${BOOTLOADER_DEVICE}
     mv -v ${ROOTFS}/boot*img .
     rm -rf ${ROOTFS}/bootloader.sh ${ROOTFS}/configs
 fi
@@ -251,4 +512,3 @@ else
     echo '[*]Skipped compression'
 fi
 echo '[+]Image Generated.'
-

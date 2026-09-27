@@ -1,0 +1,12 @@
+# Boot-critical modules for the r8q userdata -> rootfs.img boot path.
+# They are added to initramfs-tools so a modular kernel package can still boot
+# even when these drivers are not built in.
+loop
+ext4
+f2fs
+sd_mod
+ufshcd-core
+ufshcd-pltfrm
+ufs_qcom
+phy-qcom-qmp
+phy-qcom-qmp-ufs
