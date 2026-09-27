@@ -266,13 +266,49 @@ EOF
             echo "Missing dtc; install device-tree-compiler to validate the r8q DT patch" >&2
             exit 1
         fi
-        for dtb_marker in protected-clocks power-domains panel-info width-mm height-mm
-        do
-            grep -q "$dtb_marker" "$DTB_DTS" || {
-                echo "r8q DT patch marker '${dtb_marker}' not found in ${DTB_PATH}" >&2
-                exit 1
-            }
-        done
+        python3 - "$DTB_DTS" <<'PY'
+import re
+import sys
+from pathlib import Path
+
+text = Path(sys.argv[1]).read_text()
+
+needle = "framebuffer@9c000000"
+start = text.find(needle)
+if start < 0:
+    raise SystemExit("Missing framebuffer@9c000000 node in decompiled r8q DTB")
+
+brace_start = text.find("{", start)
+if brace_start < 0:
+    raise SystemExit("Malformed framebuffer@9c000000 node in decompiled r8q DTB")
+
+depth = 0
+end = None
+for index, char in enumerate(text[brace_start:], start=brace_start):
+    if char == "{":
+        depth += 1
+    elif char == "}":
+        depth -= 1
+        if depth == 0:
+            end = index
+            break
+
+if end is None:
+    raise SystemExit("Unable to parse framebuffer@9c000000 node in decompiled r8q DTB")
+
+framebuffer_node = text[start:end]
+for token in ("power-domains", "panel-info", "width-mm", "height-mm"):
+    if token not in framebuffer_node:
+        raise SystemExit(f"Missing r8q DT framebuffer marker: {token}")
+
+match = re.search(r"protected-clocks\s*=\s*<([^>]+)>;", text, re.S)
+if not match:
+    raise SystemExit("Missing protected-clocks property in decompiled r8q DTB")
+
+clock_entries = re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))
+if len(clock_entries) < 58:
+    raise SystemExit("r8q DT protected-clocks property is incomplete")
+PY
     ) || exit 1
 fi
 
