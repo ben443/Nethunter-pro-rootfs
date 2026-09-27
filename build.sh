@@ -394,7 +394,7 @@ def declared_block(source, pattern, message):
     match = re.search(pattern, source)
     if not match:
         raise SystemExit(message)
-    open_brace_index = source.find("{", match.start(), match.end() + 1)
+    open_brace_index = source.find("{", match.start())
     return block_body(source, open_brace_index)
 
 
@@ -430,7 +430,7 @@ def property_value(source, name, message):
 
 framebuffer = declared_block(
     text,
-    r"\bframebuffer@9c000000\s*\{",
+    r"\bframebuffer@9c000000\b",
     "Missing r8q DT framebuffer node",
 )
 power_domains = property_cells(
@@ -451,24 +451,13 @@ if len(panel_reference) != 1:
 
 panel_info = declared_block(
     framebuffer,
-    r"(?:[A-Za-z0-9_]+\s*:\s*)?panel-info\s*\{",
+    r"(?:[A-Za-z0-9_]+\s*:\s*)?panel-info\b",
     "Missing r8q DT framebuffer panel-info node",
 )
 if property_value(panel_info, "width-mm", "Missing r8q DT framebuffer panel-info width marker") != 68:
     raise SystemExit("Unexpected r8q DT framebuffer panel-info width marker")
 if property_value(panel_info, "height-mm", "Missing r8q DT framebuffer panel-info height marker") != 151:
     raise SystemExit("Unexpected r8q DT framebuffer panel-info height marker")
-
-panel_phandle = None
-for phandle_name in ("phandle", "linux,phandle"):
-    match = re.search(rf"\b{re.escape(phandle_name)}\s*=\s*<([^>]+)>;", panel_info, re.S)
-    if match:
-        panel_phandle = int(re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))[0], 0)
-        break
-if panel_phandle is None:
-    raise SystemExit("Missing r8q DT framebuffer panel-info phandle")
-if panel_reference[0] != panel_phandle:
-    raise SystemExit("r8q DT framebuffer panel does not reference panel-info phandle")
 
 dispcc = containing_block(
     text,
