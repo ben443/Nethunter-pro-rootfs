@@ -204,6 +204,7 @@ then
     if ! prepare_r8q_firmware_paths
     then
         echo '[*]Retrying r8q firmware install from explicit Qualcomm firmware packages'
+        nspawn-exec apt update
         nspawn-exec apt install -y firmware-qcom-soc firmware-qcom-modem firmware-atheros
         prepare_r8q_firmware_paths
     fi
