@@ -36,7 +36,7 @@ A huge thanks to Mobian Project and Megi's Kernel Patches.
     - android-sdk-libsparse-utils
     - bmap-tools
     - debootstrap
-    - device-tree-compiler
+    - device-tree-compiler (required for `r8q` DT validation)
     - qemu-user-static or qemu-user
     - rsync
     - systemd-container

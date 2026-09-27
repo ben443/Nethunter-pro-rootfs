@@ -216,7 +216,8 @@ then
     nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
     if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
        [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ] && \
-       [ ! -f "${ROOTFS}/boot/initrd.img" ]
+       [ ! -f "${ROOTFS}/boot/initrd.img" ] && \
+       [ ! -f "${ROOTFS}/boot/initramfs.img" ]
     then
         echo "Unable to locate a bootable r8q initramfs after update-initramfs" >&2
         exit 1
