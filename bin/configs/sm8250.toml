@@ -1,0 +1,16 @@
+chipset = "sm8250"
+
+[bootimg]
+version = 2
+base = 0x0
+kernel = 0x8000
+ramdisk = 0x02000000
+dtb = 0x01f00000
+second = 0
+tags = 0x01e00000
+pagesize = 4096
+
+[[device]]
+vendor = "samsung"
+model = "r8q"
+append = "console=tty0 clk_ignore_unused pd_ignore_unused rootimg=PARTLABEL=userdata/media/0/data/rootfs.img root=/dev/loop0 mobile.root=/dev/loop0"
