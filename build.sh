@@ -174,13 +174,8 @@ then
                         echo "Missing required r8q firmware file: $firmware" >&2
                         exit 1
                         ;;
-                    1)
-                        source_path="$filtered_candidates"
-                        ;;
                     *)
-                        echo "Found multiple candidate firmware files for $firmware:" >&2
-                        printf "%s\n" "$filtered_candidates" >&2
-                        exit 1
+                        source_path="$(printf "%s\n" "$filtered_candidates" | head -n1)"
                         ;;
                 esac
             fi
@@ -202,58 +197,97 @@ then
         echo "Unable to locate an installed r8q kernel image" >&2
         exit 1
     }
-    mkdir -p "${ROOTFS}/etc/initramfs-tools/conf.d"
-    printf '%s\n' 'MODULES=most' > "${ROOTFS}/etc/initramfs-tools/conf.d/r8q-modules.conf"
-    touch "${ROOTFS}/etc/initramfs-tools/modules"
-    while IFS= read -r initramfs_module
-    do
-        [ -n "$initramfs_module" ] || continue
-        case "$initramfs_module" in
-            \#*) continue ;;
-        esac
-        grep -qxF "$initramfs_module" "${ROOTFS}/etc/initramfs-tools/modules" || \
-            printf '%s\n' "$initramfs_module" >> "${ROOTFS}/etc/initramfs-tools/modules"
-    done < r8q.initramfs-modules
-    nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
-    if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
-       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
-    then
-        nspawn-exec sh -eu -c '
-            version="$1"
-            stage_dir="/tmp/r8q-initramfs-stage"
-            rm -rf "$stage_dir"
-            mkdir -p "$stage_dir"
-            trap '\''rm -rf "$stage_dir"'\'' EXIT
-            update-initramfs -c -k "$version" -b "$stage_dir"
-            for candidate in \
-                "$stage_dir/initrd.img-$version" \
-                "$stage_dir/initramfs-$version.img" \
-                "$stage_dir/initrd.img" \
-                "$stage_dir/initramfs.img"
-            do
-                [ -f "$candidate" ] || continue
-                case "${candidate##*/}" in
-                    initrd.img|initrd.img-*)
-                        destination="/boot/initrd.img-$version"
-                        ;;
-                    initramfs.img|initramfs-*.img)
-                        destination="/boot/initramfs-$version.img"
-                        ;;
-                esac
-                rm -rf "$destination"
-                cp -a "$candidate" "$destination"
-                exit 0
-            done
-            echo "Unable to create a versioned r8q initramfs for kernel $version" >&2
+    (
+        set -e
+        modules_file="${ROOTFS}/etc/initramfs-tools/modules"
+        conf_file="${ROOTFS}/etc/initramfs-tools/conf.d/r8q-modules.conf"
+        modules_backup=""
+        conf_backup=""
+
+        cleanup_r8q_initramfs_overrides() {
+            if [ -n "$modules_backup" ]
+            then
+                cp -a "$modules_backup" "$modules_file"
+            else
+                rm -f "$modules_file"
+            fi
+            if [ -n "$conf_backup" ]
+            then
+                cp -a "$conf_backup" "$conf_file"
+            else
+                rm -f "$conf_file"
+            fi
+            [ -n "$modules_backup" ] && rm -f "$modules_backup"
+            [ -n "$conf_backup" ] && rm -f "$conf_backup"
+        }
+
+        trap cleanup_r8q_initramfs_overrides EXIT
+
+        mkdir -p "${ROOTFS}/etc/initramfs-tools/conf.d"
+        if [ -e "$modules_file" ]
+        then
+            modules_backup="$(mktemp /tmp/r8q-initramfs-modules.XXXXXX)"
+            cp -a "$modules_file" "$modules_backup"
+        fi
+        if [ -e "$conf_file" ]
+        then
+            conf_backup="$(mktemp /tmp/r8q-initramfs-conf.XXXXXX)"
+            cp -a "$conf_file" "$conf_backup"
+        fi
+
+        printf '%s\n' 'MODULES=most' > "$conf_file"
+        touch "$modules_file"
+        while IFS= read -r initramfs_module
+        do
+            [ -n "$initramfs_module" ] || continue
+            case "$initramfs_module" in
+                \#*) continue ;;
+            esac
+            grep -qxF "$initramfs_module" "$modules_file" || \
+                printf '%s\n' "$initramfs_module" >> "$modules_file"
+        done < r8q.initramfs-modules
+
+        nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
+        if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
+           [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+        then
+            nspawn-exec sh -eu -c '
+                version="$1"
+                stage_dir="/tmp/r8q-initramfs-stage"
+                rm -rf "$stage_dir"
+                mkdir -p "$stage_dir"
+                trap '\''rm -rf "$stage_dir"'\'' EXIT
+                update-initramfs -c -k "$version" -b "$stage_dir"
+                for candidate in \
+                    "$stage_dir/initrd.img-$version" \
+                    "$stage_dir/initramfs-$version.img" \
+                    "$stage_dir/initrd.img" \
+                    "$stage_dir/initramfs.img"
+                do
+                    [ -f "$candidate" ] || continue
+                    case "${candidate##*/}" in
+                        initrd.img|initrd.img-*)
+                            destination="/boot/initrd.img-$version"
+                            ;;
+                        initramfs.img|initramfs-*.img)
+                            destination="/boot/initramfs-$version.img"
+                            ;;
+                    esac
+                    rm -rf "$destination"
+                    cp -a "$candidate" "$destination"
+                    exit 0
+                done
+                echo "Unable to create a versioned r8q initramfs for kernel $version" >&2
+                exit 1
+            ' sh "$KERNEL_VERSION"
+        fi
+        if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
+           [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+        then
+            echo "Unable to match a regenerated initramfs to r8q kernel ${KERNEL_VERSION}" >&2
             exit 1
-        ' sh "$KERNEL_VERSION"
-    fi
-    if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
-       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
-    then
-        echo "Unable to match a regenerated initramfs to r8q kernel ${KERNEL_VERSION}" >&2
-        exit 1
-    fi
+        fi
+    )
     KERNEL_CONFIG=""
     for config_path in \
         "${ROOTFS}/boot/config-${KERNEL_VERSION}" \
