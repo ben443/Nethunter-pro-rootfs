@@ -235,27 +235,27 @@ then
         echo "Missing required r8q DTB artifact: ${DTB_PATH}" >&2
         exit 1
     }
-    DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
-    trap 'rm -f "$DTB_DTS"' RETURN
-    if command -v fdtdump >/dev/null 2>&1
-    then
-        fdtdump "$DTB_PATH" > "$DTB_DTS"
-    elif command -v dtc >/dev/null 2>&1
-    then
-        dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
-    else
-        echo "Missing fdtdump/dtc; install device-tree-compiler to validate the r8q DT patch" >&2
-        exit 1
-    fi
-    for dtb_marker in protected-clocks power-domains panel-info width-mm height-mm
-    do
-        grep -q "$dtb_marker" "$DTB_DTS" || {
-            echo "r8q DT patch marker '${dtb_marker}' not found in ${DTB_PATH}" >&2
+    (
+        DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
+        trap 'rm -f "$DTB_DTS"' EXIT
+        if command -v fdtdump >/dev/null 2>&1
+        then
+            fdtdump "$DTB_PATH" > "$DTB_DTS"
+        elif command -v dtc >/dev/null 2>&1
+        then
+            dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
+        else
+            echo "Missing fdtdump/dtc; install device-tree-compiler to validate the r8q DT patch" >&2
             exit 1
-        }
-    done
-    trap - RETURN
-    rm -f "$DTB_DTS"
+        fi
+        for dtb_marker in protected-clocks power-domains panel-info width-mm height-mm
+        do
+            grep -q "$dtb_marker" "$DTB_DTS" || {
+                echo "r8q DT patch marker '${dtb_marker}' not found in ${DTB_PATH}" >&2
+                exit 1
+            }
+        done
+    ) || exit 1
 fi
 
 echo '[+]Stage 4: Adding some extra tweaks'
