@@ -432,6 +432,7 @@ dispcc_body = next(
         node_body
         for node_body in iter_node_bodies(text)
         if re.search(r'compatible\s*=\s*"qcom,sm8250-dispcc";', node_body)
+        and re.search(r"protected-clocks\s*=\s*<([^>]+)>;", node_body)
     ),
     None,
 )
@@ -467,7 +468,7 @@ for node_body in iter_node_bodies(text):
 if panel_values[0] not in panel_info_phandles:
     raise SystemExit("Missing r8q DT framebuffer panel-info size markers")
 
-match = re.search(r'"qcom,sm8250-dispcc".*?protected-clocks\s*=\s*<([^>]+)>;', text, re.S)
+match = re.search(r"protected-clocks\s*=\s*<([^>]+)>;", dispcc_body)
 if not match:
     raise SystemExit("Missing protected-clocks property in dispcc node")
 
