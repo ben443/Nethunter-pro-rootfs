@@ -376,14 +376,79 @@ from pathlib import Path
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 
-framebuffer_checks = (
-    (r"framebuffer@9c000000\s*\{.*?power-domains\s*=\s*<&dispcc\s+MDSS_GDSC>;", "Missing r8q DT framebuffer power-domains marker"),
-    (r"framebuffer@9c000000\s*\{.*?panel\s*=\s*<&fb_panel>;", "Missing r8q DT framebuffer panel marker"),
-    (r"fb_panel:\s*panel-info\s*\{.*?width-mm\s*=\s*<68>;.*?height-mm\s*=\s*<151>;", "Missing r8q DT framebuffer panel-info size markers"),
-)
-for pattern, message in framebuffer_checks:
-    if not re.search(pattern, text, re.S):
-        raise SystemExit(message)
+def parse_cells(value):
+    return [int(token, 0) for token in re.findall(r"0x[0-9a-fA-F]+|\d+", value)]
+
+
+def extract_enclosing_node_body(source, position):
+    stack = []
+    for index, char in enumerate(source):
+        if index > position:
+            break
+        if char == "{":
+            stack.append(index)
+        elif char == "}" and stack:
+            stack.pop()
+    if not stack:
+        return None
+    start = stack[-1]
+    depth = 0
+    for index in range(start, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[start + 1:index]
+    return None
+
+
+framebuffer_match = re.search(r"framebuffer@9c000000\s*\{", text)
+if not framebuffer_match:
+    raise SystemExit("Missing r8q DT framebuffer node")
+framebuffer_body = extract_enclosing_node_body(text, framebuffer_match.end() - 1)
+if framebuffer_body is None:
+    raise SystemExit("Missing r8q DT framebuffer node")
+
+power_domains_match = re.search(r"power-domains\s*=\s*<([^>]+)>;", framebuffer_body)
+if not power_domains_match:
+    raise SystemExit("Missing r8q DT framebuffer power-domains marker")
+power_domain_values = parse_cells(power_domains_match.group(1))
+if len(power_domain_values) < 2:
+    raise SystemExit("Missing r8q DT framebuffer power-domains marker")
+
+dispcc_match = re.search(r'"qcom,sm8250-dispcc"', text)
+if not dispcc_match:
+    raise SystemExit("Missing protected-clocks property in dispcc node")
+dispcc_body = extract_enclosing_node_body(text, dispcc_match.start())
+if dispcc_body is None:
+    raise SystemExit("Missing protected-clocks property in dispcc node")
+dispcc_phandle_match = re.search(r"phandle\s*=\s*<([^>]+)>;", dispcc_body)
+if not dispcc_phandle_match:
+    raise SystemExit("Missing r8q DT framebuffer power-domains marker")
+dispcc_phandle_values = parse_cells(dispcc_phandle_match.group(1))
+if not dispcc_phandle_values or power_domain_values[0] != dispcc_phandle_values[0]:
+    raise SystemExit("Missing r8q DT framebuffer power-domains marker")
+
+panel_match = re.search(r"panel\s*=\s*<([^>]+)>;", framebuffer_body)
+if not panel_match:
+    raise SystemExit("Missing r8q DT framebuffer panel marker")
+panel_values = parse_cells(panel_match.group(1))
+if not panel_values:
+    raise SystemExit("Missing r8q DT framebuffer panel marker")
+
+panel_info_phandles = set()
+for phandle_match in re.finditer(r"phandle\s*=\s*<([^>]+)>;", text):
+    node_body = extract_enclosing_node_body(text, phandle_match.start())
+    if node_body is None:
+        continue
+    if re.search(r"width-mm\s*=\s*<68>;", node_body) and re.search(r"height-mm\s*=\s*<151>;", node_body):
+        phandle_values = parse_cells(phandle_match.group(1))
+        if phandle_values:
+            panel_info_phandles.add(phandle_values[0])
+if panel_values[0] not in panel_info_phandles:
+    raise SystemExit("Missing r8q DT framebuffer panel-info size markers")
 
 match = re.search(r'"qcom,sm8250-dispcc".*?protected-clocks\s*=\s*<([^>]+)>;', text, re.S)
 if not match:
