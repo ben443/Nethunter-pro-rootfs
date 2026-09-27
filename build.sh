@@ -199,16 +199,32 @@ EOF
         for kernel_path in "${ROOTFS}"/boot/vmlinuz-*; do
             [ -f "$kernel_path" ] || continue
             version="${kernel_path##*/vmlinuz-}"
-            if [ -f "${ROOTFS}/boot/initrd.img-${version}" ] || [ -f "${ROOTFS}/boot/initramfs-${version}.img" ]
-            then
-                printf '%s\n' "$version"
-            fi
+            printf '%s\n' "$version"
         done | sort -V | tail -1
     )"
     [ -n "$KERNEL_VERSION" ] || {
-        echo "Unable to locate a bootable r8q kernel and initramfs pair" >&2
+        echo "Unable to locate an installed r8q kernel image" >&2
         exit 1
     }
+    mkdir -p "${ROOTFS}/etc/initramfs-tools/conf.d"
+    printf '%s\n' 'MODULES=most' > "${ROOTFS}/etc/initramfs-tools/conf.d/r8q-modules.conf"
+    touch "${ROOTFS}/etc/initramfs-tools/modules"
+    while IFS= read -r initramfs_module
+    do
+        [ -n "$initramfs_module" ] || continue
+        case "$initramfs_module" in
+            \#*) continue ;;
+        esac
+        grep -qxF "$initramfs_module" "${ROOTFS}/etc/initramfs-tools/modules" || \
+            printf '%s\n' "$initramfs_module" >> "${ROOTFS}/etc/initramfs-tools/modules"
+    done < r8q.initramfs-modules
+    nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
+    if ! [ -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
+       ! [ -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+    then
+        echo "Unable to locate a bootable r8q initramfs after update-initramfs" >&2
+        exit 1
+    fi
     KERNEL_CONFIG=""
     for config_path in \
         "${ROOTFS}/boot/config-${KERNEL_VERSION}" \
