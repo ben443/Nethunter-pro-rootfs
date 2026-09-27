@@ -226,11 +226,13 @@ EOF
     }
     while IFS= read -r expected_config
     do
-        case "$expected_config" in
-            '') continue ;;
-            \#\ CONFIG_*' is not set') ;;
-            \#*) continue ;;
-        esac
+        [ -n "$expected_config" ] || continue
+        if ! echo "$expected_config" | grep -q '^# CONFIG_.* is not set$'
+        then
+            case "$expected_config" in
+                \#*) continue ;;
+            esac
+        fi
         grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
             echo "Missing required r8q kernel config: $expected_config" >&2
             exit 1
