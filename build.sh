@@ -158,14 +158,31 @@ then
         mkdir -p "$dest_dir"
         for firmware in adsp.mbn cdsp.mbn slpi.mbn
         do
-            source_path="$(find /usr/lib/firmware/qcom/sm8250 \
-                -path "$dest_dir" -prune -o \
-                -type f \
-                -name "$firmware" -print | head -n1)"
-            [ -n "$source_path" ] || {
-                echo "Missing required r8q firmware file: $firmware" >&2
-                exit 1
-            }
+            preferred_path="/usr/lib/firmware/qcom/sm8250/$firmware"
+            if [ -f "$preferred_path" ]
+            then
+                source_path="$preferred_path"
+            else
+                candidates="$(find /usr/lib/firmware/qcom/sm8250 \
+                    -path "$dest_dir" -prune -o \
+                    -type f \
+                    -name "$firmware" -print | sort)"
+                candidate_count="$(printf "%s\n" "$candidates" | sed "/^$/d" | wc -l)"
+                case "$candidate_count" in
+                    0)
+                        echo "Missing required r8q firmware file: $firmware" >&2
+                        exit 1
+                        ;;
+                    1)
+                        source_path="$(printf "%s\n" "$candidates" | sed -n "1p")"
+                        ;;
+                    *)
+                        echo "Ambiguous r8q firmware candidates for $firmware:" >&2
+                        printf "%s\n" "$candidates" >&2
+                        exit 1
+                        ;;
+                esac
+            fi
             source_path="$(readlink -f "$source_path")"
             ln -srf "$source_path" "$dest_dir/$firmware"
         done
