@@ -160,6 +160,7 @@ then
         do
             source_path="$(find /usr/lib/firmware/qcom/sm8250 \
                 -path "$dest_dir" -prune -o \
+                -type f \
                 -name "$firmware" -print | head -n1)"
             [ -n "$source_path" ] || {
                 echo "Missing required r8q firmware file: $firmware" >&2
