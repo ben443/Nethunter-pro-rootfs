@@ -12,9 +12,20 @@ on:
         default: pinephone
         options:
           - pinephone
+          - pinetab
+          - sunxi
           - pinephonepro
+          - pinetab2
+          - rockchip
+          - pocof1
+          - oneplus6
+          - oneplus6t
           - sdm845
+          - qcom
+          - sm8250
           - r8q
+          - nothingphone1
+          - sm7325
       environment:
         description: Desktop/mobile environment to install
         required: true
@@ -108,6 +119,7 @@ jobs:
           artifacts+=( *.img.xz )
           artifacts+=( *.bmap )
           artifacts+=( *.tgz )
+          artifacts+=( *.tar.xz )
           if (( ${#artifacts[@]} == 0 )); then
             echo 'No build artifacts were generated.' >&2
             exit 1
