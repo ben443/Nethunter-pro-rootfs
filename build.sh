@@ -150,6 +150,21 @@ nspawn-exec sh -c "$(curl -fsSL https://repo.fossfrog.in/setup.sh)"
 nspawn-exec apt install -y ${PACKAGES}
 nspawn-exec apt install -y ${DPACKAGES}
 
+if [ "$device" = "r8q" ]
+then
+    echo '[*]Preparing r8q firmware paths expected by the mainline device tree'
+    mkdir -p ${ROOTFS}/usr/lib/firmware/qcom/sm8250/Samsung/r8q
+    for firmware in adsp.mbn cdsp.mbn slpi.mbn
+    do
+        [ -f "${ROOTFS}/usr/lib/firmware/qcom/sm8250/${firmware}" ] || {
+            echo "Missing required r8q firmware file: ${firmware}" >&2
+            exit 1
+        }
+        ln -srf ${ROOTFS}/usr/lib/firmware/qcom/sm8250/${firmware} \
+            ${ROOTFS}/usr/lib/firmware/qcom/sm8250/Samsung/r8q/${firmware}
+    done
+fi
+
 echo '[+]Stage 4: Adding some extra tweaks'
 if [ ! -e "${ROOTFS}/etc/repart.d/50-root.conf" ]
 then
