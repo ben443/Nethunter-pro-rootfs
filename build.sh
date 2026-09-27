@@ -222,7 +222,9 @@ then
     while IFS= read -r expected_config
     do
         case "$expected_config" in
-            ''|\#*) continue ;;
+            '') continue ;;
+            \#\ CONFIG_*' is not set') ;;
+            \#*) continue ;;
         esac
         grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
             echo "Missing required r8q kernel config: $expected_config" >&2
@@ -230,22 +232,31 @@ then
         }
     done < r8q.config
 
-    DTB_PATH="${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb"
-    [ -f "$DTB_PATH" ] || {
-        echo "Missing required r8q DTB artifact: ${DTB_PATH}" >&2
+    DTB_PATH=""
+    for dtb_candidate in \
+        "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/kernel/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb"
+    do
+        if [ -f "$dtb_candidate" ]
+        then
+            DTB_PATH="$dtb_candidate"
+            break
+        fi
+    done
+    [ -n "$DTB_PATH" ] || {
+        echo "Missing required r8q DTB artifact for kernel ${KERNEL_VERSION}" >&2
         exit 1
     }
     (
         DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
         trap 'rm -f "$DTB_DTS"' EXIT
-        if command -v fdtdump >/dev/null 2>&1
-        then
-            fdtdump "$DTB_PATH" > "$DTB_DTS"
-        elif command -v dtc >/dev/null 2>&1
+        if command -v dtc >/dev/null 2>&1
         then
             dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
         else
-            echo "Missing fdtdump/dtc; install device-tree-compiler to validate the r8q DT patch" >&2
+            echo "Missing dtc; install device-tree-compiler to validate the r8q DT patch" >&2
             exit 1
         fi
         for dtb_marker in protected-clocks power-domains panel-info width-mm height-mm

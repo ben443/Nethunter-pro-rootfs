@@ -53,6 +53,19 @@ resolve_ramdisk_path() {
     return 1
 }
 
+resolve_dtb_path() {
+    dtb_name="$1"
+    for candidate in \
+        "/usr/lib/linux-image-${KERNEL_VERSION}/qcom/${dtb_name}" \
+        "/usr/lib/linux-image-${KERNEL_VERSION}/${dtb_name}" \
+        "/usr/lib/modules/${KERNEL_VERSION}/${dtb_name}" \
+        "/usr/lib/modules/${KERNEL_VERSION}/kernel/arch/arm64/boot/dts/qcom/${dtb_name}"
+    do
+        [ -f "${candidate}" ] && printf '%s\n' "${candidate}" && return 0
+    done
+    return 1
+}
+
 ROOTPART=$(grep -P '^UUID.*[ \t]/[ \t]' /etc/fstab | awk '{print $1}')
 
 if [ "${ROOTPART}" = "UUID=" ]; then
@@ -87,7 +100,7 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
     else
         FULLMODEL="${MODEL}"
     fi
-    DTB_FILE="/usr/lib/linux-image-${KERNEL_VERSION}/qcom/${DEVICE_SOC}-${VENDOR}-${FULLMODEL}.dtb"
+    DTB_FILE="$(resolve_dtb_path "${DEVICE_SOC}-${VENDOR}-${FULLMODEL}.dtb")"
     ROOT_CMDLINE="mobile.root=${ROOTPART}"
 
     LOGLEVEL="quiet"
@@ -109,6 +122,10 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
     fi
 
     if echo "${BOOTIMG_ARGS}" | grep -q "dtb_offset"; then
+        [ -n "${DTB_FILE}" ] || {
+            echo "ERROR: Unable to locate DTB for ${FULLMODEL}" >&2
+            exit 1
+        }
         BOOTIMG_ARGS="${BOOTIMG_ARGS} --dtb ${DTB_FILE}"
     fi
 
