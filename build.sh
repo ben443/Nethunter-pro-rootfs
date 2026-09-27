@@ -238,14 +238,16 @@ then
             case "$generic_ramdisk" in
                 initrd.img)
                     previous_mtime="$INITRD_GENERIC_MTIME"
+                    versioned_ramdisk="${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}"
                     ;;
                 initramfs.img)
                     previous_mtime="$INITRAMFS_GENERIC_MTIME"
+                    versioned_ramdisk="${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img"
                     ;;
             esac
             if [ -z "$previous_mtime" ] || [ "$current_mtime" != "$previous_mtime" ]
             then
-                ln -srf "$(readlink -f "$generic_path")" "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}"
+                ln -srf "$(readlink -f "$generic_path")" "$versioned_ramdisk"
                 break
             fi
         done
@@ -379,11 +381,20 @@ def extract_node_containing(source: str, needle: str) -> str:
     if offset < 0:
         raise SystemExit(f"Missing {needle} in decompiled r8q DTB")
 
-    brace_start = source.rfind("{", 0, offset)
-    if brace_start < 0:
+    depth = 0
+    brace_start = None
+    for index in range(offset, -1, -1):
+        char = source[index]
+        if char == "}":
+            depth += 1
+        elif char == "{":
+            if depth == 0:
+                brace_start = index
+                break
+            depth -= 1
+    if brace_start is None:
         raise SystemExit(f"Unable to locate node start for {needle} in decompiled r8q DTB")
 
-    depth = 0
     end = None
     for index, char in enumerate(source[brace_start:], start=brace_start):
         if char == "{":
