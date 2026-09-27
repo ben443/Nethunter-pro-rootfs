@@ -156,10 +156,7 @@ then
     nspawn-exec mkdir -p /usr/lib/firmware/qcom/sm8250/Samsung/r8q
     for firmware in adsp.mbn cdsp.mbn slpi.mbn
     do
-        nspawn-exec test -f "/usr/lib/firmware/qcom/sm8250/${firmware}" || {
-            echo "Missing required r8q firmware file: ${firmware}" >&2
-            exit 1
-        }
+        nspawn-exec sh -c "[ -f '/usr/lib/firmware/qcom/sm8250/${firmware}' ] || { echo 'Missing required r8q firmware file: ${firmware}' >&2; exit 1; }"
         nspawn-exec ln -srf "/usr/lib/firmware/qcom/sm8250/${firmware}" \
             "/usr/lib/firmware/qcom/sm8250/Samsung/r8q/${firmware}"
     done
