@@ -90,6 +90,9 @@ jobs:
           sudo update-binfmts --enable qemu-aarch64
           sudo systemctl restart systemd-binfmt || true
           test -x /usr/bin/qemu-aarch64-static
+          binfmt_status="$(sudo update-binfmts --display qemu-aarch64)"
+          printf '%s\n' "$binfmt_status"
+          grep -q 'qemu-aarch64 (enabled)' <<<"$binfmt_status"
 
       - name: Run build
         shell: bash
@@ -115,11 +118,11 @@ jobs:
           mkdir -p workflow-artifacts
           shopt -s nullglob
           artifacts=()
-          artifacts+=( *.img )
-          artifacts+=( *.img.xz )
-          artifacts+=( *.bmap )
-          artifacts+=( *.tgz )
-          artifacts+=( *.tar.xz )
+          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.img )
+          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.img.xz )
+          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.bmap )
+          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.tgz )
+          artifacts+=( rootfs-${{ inputs.device }}-${{ inputs.environment }}*.tar.xz )
           if (( ${#artifacts[@]} == 0 )); then
             echo 'No build artifacts were generated.' >&2
             exit 1
