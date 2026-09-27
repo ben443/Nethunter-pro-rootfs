@@ -214,43 +214,39 @@ then
         grep -qxF "$initramfs_module" "${ROOTFS}/etc/initramfs-tools/modules" || \
             printf '%s\n' "$initramfs_module" >> "${ROOTFS}/etc/initramfs-tools/modules"
     done < r8q.initramfs-modules
-    INITRD_GENERIC_MTIME=""
-    INITRAMFS_GENERIC_MTIME=""
-    [ -e "${ROOTFS}/boot/initrd.img" ] && INITRD_GENERIC_MTIME="$(stat -c %Y "${ROOTFS}/boot/initrd.img")"
-    [ -e "${ROOTFS}/boot/initramfs.img" ] && INITRAMFS_GENERIC_MTIME="$(stat -c %Y "${ROOTFS}/boot/initramfs.img")"
     nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
-    if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
-       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ] && \
-       [ ! -f "${ROOTFS}/boot/initrd.img" ] && \
-       [ ! -f "${ROOTFS}/boot/initramfs.img" ]
-    then
-        echo "Unable to locate a bootable r8q initramfs after update-initramfs" >&2
-        exit 1
-    fi
     if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
        [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
     then
-        for generic_ramdisk in initrd.img initramfs.img
-        do
-            generic_path="${ROOTFS}/boot/${generic_ramdisk}"
-            [ -f "$generic_path" ] || continue
-            current_mtime="$(stat -c %Y "$generic_path")"
-            case "$generic_ramdisk" in
-                initrd.img)
-                    previous_mtime="$INITRD_GENERIC_MTIME"
-                    versioned_ramdisk="${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}"
-                    ;;
-                initramfs.img)
-                    previous_mtime="$INITRAMFS_GENERIC_MTIME"
-                    versioned_ramdisk="${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img"
-                    ;;
-            esac
-            if [ -z "$previous_mtime" ] || [ "$current_mtime" != "$previous_mtime" ]
-            then
-                ln -srf "$(readlink -f "$generic_path")" "$versioned_ramdisk"
-                break
-            fi
-        done
+        nspawn-exec sh -eu -c '
+            version="$1"
+            stage_dir="/tmp/r8q-initramfs-stage"
+            rm -rf "$stage_dir"
+            mkdir -p "$stage_dir"
+            trap '\''rm -rf "$stage_dir"'\'' EXIT
+            update-initramfs -c -k "$version" -b "$stage_dir"
+            for candidate in \
+                "$stage_dir/initrd.img-$version" \
+                "$stage_dir/initramfs-$version.img" \
+                "$stage_dir/initrd.img" \
+                "$stage_dir/initramfs.img"
+            do
+                [ -f "$candidate" ] || continue
+                case "${candidate##*/}" in
+                    initrd.img|initrd.img-*)
+                        destination="/boot/initrd.img-$version"
+                        ;;
+                    initramfs.img|initramfs-*.img)
+                        destination="/boot/initramfs-$version.img"
+                        ;;
+                esac
+                rm -rf "$destination"
+                cp -a "$candidate" "$destination"
+                exit 0
+            done
+            echo "Unable to create a versioned r8q initramfs for kernel $version" >&2
+            exit 1
+        ' sh "$KERNEL_VERSION"
     fi
     if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
        [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
@@ -348,7 +344,7 @@ import re
 import sys
 from pathlib import Path
 
-text = Path(sys.argv[1]).read_text()
+text = Path(sys.argv[1]).read_text(encoding="utf-8")
 
 def extract_named_node(source: str, needle: str) -> str:
     start = source.find(needle)
