@@ -65,11 +65,15 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
         FULLMODEL="${MODEL}"
     fi
     DTB_FILE="/usr/lib/linux-image-${KERNEL_VERSION}/qcom/${DEVICE_SOC}-${VENDOR}-${FULLMODEL}.dtb"
+    ROOT_CMDLINE="mobile.root=${ROOTPART}"
 
     LOGLEVEL="quiet"
     # Include additional cmdline args if specified
     if [ "${APPEND}" ]; then
         CMDLINE="${CMDLINE} ${APPEND}"
+        if echo "${APPEND}" | grep -q 'mobile.root='; then
+            ROOT_CMDLINE=""
+        fi
         if echo "${APPEND}" | grep -q "console="; then
             LOGLEVEL="loglevel=7"
         fi
@@ -91,5 +95,5 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
     # Create the bootimg as it's the only format recognized by the Android bootloader
     mkbootimg -o /boot_${FULLMODEL}_`date +%Y%m%d`.img ${BOOTIMG_ARGS} \
         --kernel /tmp/kernel-dtb --ramdisk /boot/initrd.img-${KERNEL_VERSION} \
-        --cmdline "mobile.root=${ROOTPART} ${CMDLINE} init=/sbin/init ro ${LOGLEVEL} splash"
+        --cmdline "${ROOT_CMDLINE} ${CMDLINE} init=/sbin/init ro ${LOGLEVEL} splash"
 done
