@@ -362,74 +362,16 @@ from pathlib import Path
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 
-def extract_named_node(source: str, needle: str) -> str:
-    start = source.find(needle)
-    if start < 0:
-        raise SystemExit(f"Missing {needle} node in decompiled r8q DTB")
+framebuffer_checks = (
+    (r"framebuffer@9c000000\s*\{.*?power-domains\s*=\s*<&dispcc\s+MDSS_GDSC>;", "Missing r8q DT framebuffer power-domains marker"),
+    (r"framebuffer@9c000000\s*\{.*?panel\s*=\s*<&fb_panel>;", "Missing r8q DT framebuffer panel marker"),
+    (r"fb_panel:\s*panel-info\s*\{.*?width-mm\s*=\s*<68>;.*?height-mm\s*=\s*<151>;", "Missing r8q DT framebuffer panel-info size markers"),
+)
+for pattern, message in framebuffer_checks:
+    if not re.search(pattern, text, re.S):
+        raise SystemExit(message)
 
-    brace_start = source.find("{", start)
-    if brace_start < 0:
-        raise SystemExit(f"Malformed {needle} node in decompiled r8q DTB")
-
-    depth = 0
-    end = None
-    for index, char in enumerate(source[brace_start:], start=brace_start):
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                end = index
-                break
-
-    if end is None:
-        raise SystemExit(f"Unable to parse {needle} node in decompiled r8q DTB")
-
-    return source[start:end]
-
-
-def extract_node_containing(source: str, needle: str) -> str:
-    offset = source.find(needle)
-    if offset < 0:
-        raise SystemExit(f"Missing {needle} in decompiled r8q DTB")
-
-    depth = 0
-    brace_start = None
-    for index in range(offset, -1, -1):
-        char = source[index]
-        if char == "}":
-            depth += 1
-        elif char == "{":
-            if depth == 0:
-                brace_start = index
-                break
-            depth -= 1
-    if brace_start is None:
-        raise SystemExit(f"Unable to locate node start for {needle} in decompiled r8q DTB")
-
-    end = None
-    for index, char in enumerate(source[brace_start:], start=brace_start):
-        if char == "{":
-            depth += 1
-        elif char == "}":
-            depth -= 1
-            if depth == 0:
-                end = index
-                break
-
-    if end is None:
-        raise SystemExit(f"Unable to parse containing node for {needle} in decompiled r8q DTB")
-
-    return source[brace_start:end]
-
-
-framebuffer_node = extract_named_node(text, "framebuffer@9c000000")
-for token in ("power-domains", "panel-info", "width-mm", "height-mm"):
-    if token not in framebuffer_node:
-        raise SystemExit(f"Missing r8q DT framebuffer marker: {token}")
-
-dispcc_node = extract_node_containing(text, '"qcom,sm8250-dispcc"')
-match = re.search(r"protected-clocks\s*=\s*<([^>]+)>;", dispcc_node, re.S)
+match = re.search(r'"qcom,sm8250-dispcc".*?protected-clocks\s*=\s*<([^>]+)>;', text, re.S)
 if not match:
     raise SystemExit("Missing protected-clocks property in dispcc node")
 
