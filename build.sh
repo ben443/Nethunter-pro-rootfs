@@ -225,7 +225,8 @@ then
     for config_path in \
         "${ROOTFS}/boot/config-${KERNEL_VERSION}" \
         "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/config" \
-        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/config"
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/config" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/.config"
     do
         if [ -f "$config_path" ]
         then
@@ -294,7 +295,12 @@ then
     DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
     if command -v dtc >/dev/null 2>&1
     then
-        dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
+        if ! dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
+        then
+            rm -f "$DTB_DTS"
+            echo "Failed to decompile r8q DTB with dtc" >&2
+            exit 1
+        fi
     else
         rm -f "$DTB_DTS"
         echo "Missing dtc; install device-tree-compiler to validate the r8q DT patch" >&2
