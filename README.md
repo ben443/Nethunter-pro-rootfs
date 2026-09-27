@@ -36,6 +36,7 @@ A huge thanks to Mobian Project and Megi's Kernel Patches.
     - android-sdk-libsparse-utils
     - bmap-tools
     - debootstrap
+    - device-tree-compiler
     - qemu-user-static or qemu-user
     - rsync
     - systemd-container

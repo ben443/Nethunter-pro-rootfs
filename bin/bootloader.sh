@@ -35,13 +35,36 @@ bootimg_offsets() {
     echo "${ARGS}"
 }
 
+resolve_kernel_version() {
+    for kernel_path in /boot/vmlinuz-*; do
+        [ -f "${kernel_path}" ] || continue
+        version="${kernel_path#/boot/vmlinuz-}"
+        if [ -f "/boot/initrd.img-${version}" ] || [ -f "/boot/initramfs-${version}.img" ]; then
+            printf '%s\n' "${version}"
+        fi
+    done | sort -V | tail -1
+}
+
+resolve_ramdisk_path() {
+    version="$1"
+    for candidate in "/boot/initrd.img-${version}" "/boot/initramfs-${version}.img"; do
+        [ -f "${candidate}" ] && printf '%s\n' "${candidate}" && return 0
+    done
+    return 1
+}
+
 ROOTPART=$(grep -P '^UUID.*[ \t]/[ \t]' /etc/fstab | awk '{print $1}')
 
 if [ "${ROOTPART}" = "UUID=" ]; then
     # This means we're using an encrypted rootfs
     ROOTPART="/dev/mapper/root"
 fi
-KERNEL_VERSION=$(linux-version list | tail -1)
+KERNEL_VERSION="$(resolve_kernel_version)"
+[ -n "${KERNEL_VERSION}" ] || {
+    echo "ERROR: Unable to locate a bootable kernel and initramfs pair" >&2
+    exit 1
+}
+RAMDISK_PATH="$(resolve_ramdisk_path "${KERNEL_VERSION}")"
 
 # Parse config for generic parameters for the current SoC
 SOC=$(tomlq -r "if .chipset then .chipset else \"${DEVICE}\" end" ${CONFIG})
@@ -94,6 +117,6 @@ for i in $(seq 0 $(tomlq -r '.device | length - 1' ${CONFIG})); do
 
     # Create the bootimg as it's the only format recognized by the Android bootloader
     mkbootimg -o /boot_${FULLMODEL}_`date +%Y%m%d`.img ${BOOTIMG_ARGS} \
-        --kernel /tmp/kernel-dtb --ramdisk /boot/initrd.img-${KERNEL_VERSION} \
+        --kernel /tmp/kernel-dtb --ramdisk ${RAMDISK_PATH} \
         --cmdline "${ROOT_CMDLINE} ${CMDLINE} init=/sbin/init ro ${LOGLEVEL} splash"
 done

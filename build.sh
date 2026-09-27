@@ -189,7 +189,20 @@ then
     '
 
     echo '[*]Validating r8q kernel config and DT patch markers'
-    KERNEL_VERSION="$(nspawn-exec sh -c 'linux-version list | tail -1')"
+    KERNEL_VERSION="$(
+        for kernel_path in "${ROOTFS}"/boot/vmlinuz-*; do
+            [ -f "$kernel_path" ] || continue
+            version="${kernel_path##*/vmlinuz-}"
+            if [ -f "${ROOTFS}/boot/initrd.img-${version}" ] || [ -f "${ROOTFS}/boot/initramfs-${version}.img" ]
+            then
+                printf '%s\n' "$version"
+            fi
+        done | sort -V | tail -1
+    )"
+    [ -n "$KERNEL_VERSION" ] || {
+        echo "Unable to locate a bootable r8q kernel and initramfs pair" >&2
+        exit 1
+    }
     KERNEL_CONFIG=""
     for config_path in \
         "${ROOTFS}/boot/config-${KERNEL_VERSION}" \
@@ -222,13 +235,27 @@ then
         echo "Missing required r8q DTB artifact: ${DTB_PATH}" >&2
         exit 1
     }
-    for dtb_marker in protected-clocks panel-info width-mm height-mm
+    DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
+    trap 'rm -f "$DTB_DTS"' RETURN
+    if command -v fdtdump >/dev/null 2>&1
+    then
+        fdtdump "$DTB_PATH" > "$DTB_DTS"
+    elif command -v dtc >/dev/null 2>&1
+    then
+        dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
+    else
+        echo "Missing fdtdump/dtc; install device-tree-compiler to validate the r8q DT patch" >&2
+        exit 1
+    fi
+    for dtb_marker in protected-clocks power-domains panel-info width-mm height-mm
     do
-        grep -aq "$dtb_marker" "$DTB_PATH" || {
+        grep -q "$dtb_marker" "$DTB_DTS" || {
             echo "r8q DT patch marker '${dtb_marker}' not found in ${DTB_PATH}" >&2
             exit 1
         }
     done
+    trap - RETURN
+    rm -f "$DTB_DTS"
 fi
 
 echo '[+]Stage 4: Adding some extra tweaks'
