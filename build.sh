@@ -162,7 +162,9 @@ then
             source_path="$preferred_path"
             if [ ! -f "$source_path" ]; then
                 source_path="$(
-                    find /usr/lib/firmware/qcom/sm8250 -type f -name "$firmware" -print -quit
+                    find /usr/lib/firmware/qcom/sm8250 -mindepth 2 -maxdepth 4 -type f -name "$firmware" -print \
+                        | LC_ALL=C sort \
+                        | head -n 1
                 )"
             fi
             [ -n "$source_path" ] && [ -f "$source_path" ] || {
