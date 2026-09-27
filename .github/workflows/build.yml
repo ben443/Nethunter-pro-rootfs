@@ -61,10 +61,15 @@ jobs:
             debootstrap \
             device-tree-compiler \
             gnupg \
+            mkbootimg \
+            cryptsetup \
+            f2fs-tools \
             qemu-user-static \
             rsync \
+            squashfs-tools-ng \
             systemd-container \
-            xz-utils
+            xz-utils \
+            yq
 
       - name: Enable ARM64 binfmt/QEMU
         shell: bash
@@ -74,11 +79,11 @@ jobs:
           sudo systemctl restart systemd-binfmt || true
           test -x /usr/bin/qemu-aarch64-static
 
-      - name: Prepare build arguments
-        id: args
+      - name: Run build
         shell: bash
         run: |
           set -euo pipefail
+          chmod +x ./build.sh
           args=("-t" "${{ inputs.device }}" "-e" "${{ inputs.environment }}")
 
           if [[ "${{ inputs.compress }}" == 'true' ]]; then
@@ -89,16 +94,7 @@ jobs:
             args+=("-b")
           fi
 
-          printf 'value=%s\n' "${args[*]}" >> "$GITHUB_OUTPUT"
-
-      - name: Run build
-        shell: bash
-        env:
-          BUILD_ARGS: ${{ steps.args.outputs.value }}
-        run: |
-          set -euo pipefail
-          chmod +x ./build.sh
-          sudo ./build.sh ${BUILD_ARGS}
+          sudo ./build.sh "${args[@]}"
 
       - name: List generated artifacts
         shell: bash
