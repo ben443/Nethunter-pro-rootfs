@@ -398,10 +398,7 @@ def declared_block(source, pattern, message):
     return block_body(source, open_brace_index)
 
 
-def containing_block(source, pattern, message):
-    match = re.search(pattern, source, re.S)
-    if not match:
-        raise SystemExit(message)
+def match_block(source, match, message):
     depth = 0
     for index in range(match.start() - 1, -1, -1):
         char = source[index]
@@ -411,6 +408,31 @@ def containing_block(source, pattern, message):
             if depth == 0:
                 return block_body(source, index)
             depth -= 1
+    raise SystemExit(message)
+
+
+def containing_block(source, pattern, message):
+    match = re.search(pattern, source, re.S)
+    if not match:
+        raise SystemExit(message)
+    return match_block(source, match, message)
+
+
+def phandle_value(source, message):
+    for phandle_name in ("phandle", "linux,phandle"):
+        match = re.search(rf"\b{re.escape(phandle_name)}\s*=\s*<([^>]+)>;", source, re.S)
+        if match:
+            cells = [int(token, 0) for token in re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))]
+            if cells:
+                return cells[0]
+    raise SystemExit(message)
+
+
+def node_with_phandle(source, phandle, message):
+    for match in re.finditer(r"\b(?:phandle|linux,phandle)\s*=\s*<([^>]+)>;", source, re.S):
+        cells = [int(token, 0) for token in re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))]
+        if cells and cells[0] == phandle:
+            return match_block(source, match, message)
     raise SystemExit(message)
 
 
@@ -440,6 +462,8 @@ power_domains = property_cells(
 )
 if len(power_domains) < 2:
     raise SystemExit("Incomplete r8q DT framebuffer power-domains marker")
+if power_domains[1] != 0:
+    raise SystemExit("Unexpected r8q DT framebuffer power-domains domain id")
 
 panel_reference = property_cells(
     framebuffer,
@@ -459,19 +483,17 @@ if property_value(panel_info, "width-mm", "Missing r8q DT framebuffer panel-info
 if property_value(panel_info, "height-mm", "Missing r8q DT framebuffer panel-info height marker") != 151:
     raise SystemExit("Unexpected r8q DT framebuffer panel-info height marker")
 
+panel_info_phandle = phandle_value(panel_info, "Missing r8q DT framebuffer panel-info phandle")
+panel_target = node_with_phandle(text, panel_reference[0], "Missing r8q DT framebuffer panel target node")
+if panel_reference[0] != panel_info_phandle or panel_target != panel_info:
+    raise SystemExit("r8q DT framebuffer panel does not reference panel-info")
+
 dispcc = containing_block(
     text,
     r'compatible\s*=\s*"qcom,sm8250-dispcc"',
     "Missing dispcc node",
 )
-dispcc_phandle = None
-for phandle_name in ("phandle", "linux,phandle"):
-    match = re.search(rf"\b{re.escape(phandle_name)}\s*=\s*<([^>]+)>;", dispcc, re.S)
-    if match:
-        dispcc_phandle = int(re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))[0], 0)
-        break
-if dispcc_phandle is None:
-    raise SystemExit("Missing dispcc phandle")
+dispcc_phandle = phandle_value(dispcc, "Missing dispcc phandle")
 if power_domains[0] != dispcc_phandle:
     raise SystemExit("r8q DT framebuffer power-domains does not reference dispcc phandle")
 
