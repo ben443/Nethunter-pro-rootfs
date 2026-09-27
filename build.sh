@@ -153,13 +153,21 @@ nspawn-exec apt install -y ${DPACKAGES}
 if [ "$device" = "r8q" ]
 then
     echo '[*]Preparing r8q firmware paths expected by the mainline device tree'
-    nspawn-exec mkdir -p /usr/lib/firmware/qcom/sm8250/Samsung/r8q
-    for firmware in adsp.mbn cdsp.mbn slpi.mbn
-    do
-        nspawn-exec sh -c "[ -f '/usr/lib/firmware/qcom/sm8250/${firmware}' ] || { echo 'Missing required r8q firmware file: ${firmware}' >&2; exit 1; }"
-        nspawn-exec ln -srf "/usr/lib/firmware/qcom/sm8250/${firmware}" \
-            "/usr/lib/firmware/qcom/sm8250/Samsung/r8q/${firmware}"
-    done
+    nspawn-exec sh -eu -c '
+        dest_dir=/usr/lib/firmware/qcom/sm8250/Samsung/r8q
+        mkdir -p "$dest_dir"
+        for firmware in adsp.mbn cdsp.mbn slpi.mbn
+        do
+            source_path="$(find /usr/lib/firmware/qcom/sm8250 \
+                -path "$dest_dir" -prune -o \
+                -name "$firmware" -print | head -n1)"
+            [ -n "$source_path" ] || {
+                echo "Missing required r8q firmware file: $firmware" >&2
+                exit 1
+            }
+            ln -srf "$source_path" "$dest_dir/$firmware"
+        done
+    '
 fi
 
 echo '[+]Stage 4: Adding some extra tweaks'
