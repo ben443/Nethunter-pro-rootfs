@@ -232,36 +232,37 @@ then
                 printf '%s\n' "$initramfs_module" >> "$modules_file"
         done < r8q.initramfs-modules
 
+        rm -f "${ROOTFS}/boot/initrd.img" "${ROOTFS}/boot/initramfs.img"
         nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
-        nspawn-exec sh -eu -c '
-            version="$1"
-            stage_dir="/tmp/r8q-initramfs-stage"
-            rm -rf "$stage_dir"
-            mkdir -p "$stage_dir"
-            trap '\''rm -rf "$stage_dir"'\'' EXIT
-            update-initramfs -c -k "$version" -b "$stage_dir"
-            for candidate in \
-                "$stage_dir/initrd.img-$version" \
-                "$stage_dir/initramfs-$version.img" \
-                "$stage_dir/initrd.img" \
-                "$stage_dir/initramfs.img"
-            do
-                [ -f "$candidate" ] || continue
-                case "${candidate##*/}" in
-                    initrd.img|initrd.img-*)
-                        destination="/boot/initrd.img-$version"
-                        ;;
-                    initramfs.img|initramfs-*.img)
-                        destination="/boot/initramfs-$version.img"
-                        ;;
-                esac
-                rm -rf "$destination"
-                cp -a "$candidate" "$destination"
-                exit 0
-            done
-            echo "Unable to create a versioned r8q initramfs for kernel $version" >&2
+        staged_ramdisk=""
+        staged_destination=""
+        for candidate in \
+            "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" \
+            "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" \
+            "${ROOTFS}/boot/initrd.img" \
+            "${ROOTFS}/boot/initramfs.img"
+        do
+            [ -f "$candidate" ] || continue
+            staged_ramdisk="$candidate"
+            case "${candidate##*/}" in
+                initrd.img|initrd.img-*)
+                    staged_destination="${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}"
+                    ;;
+                initramfs.img|initramfs-*.img)
+                    staged_destination="${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img"
+                    ;;
+            esac
+            break
+        done
+        [ -n "$staged_ramdisk" ] || {
+            echo "Unable to create a bootable r8q initramfs for kernel ${KERNEL_VERSION}" >&2
             exit 1
-        ' sh "$KERNEL_VERSION"
+        }
+        if [ "$staged_ramdisk" != "$staged_destination" ]
+        then
+            rm -rf "$staged_destination"
+            cp -a "$staged_ramdisk" "$staged_destination"
+        fi
         if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
            [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
         then
