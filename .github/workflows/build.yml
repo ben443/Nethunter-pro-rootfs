@@ -1,0 +1,223 @@
+name: Build NetHunter Pro
+
+on:
+  workflow_dispatch:
+    inputs:
+      device:
+        description: "Target device"
+        required: true
+        type: choice
+        default: r8q
+        options:
+          - pinephone
+          - pinetab
+          - pinephonepro
+          - pinetab2
+          - librem5
+          - sm8250
+          - sdm670
+          - sdm845
+          - sm6350
+          - sm8450
+          - gts8wifi
+          - qcom-wip
+          - r8q
+          - amd64-free
+      environment:
+        description: "Graphical environment"
+        required: true
+        type: choice
+        default: phosh
+        options:
+          - phosh
+          - plasma-mobile
+      build_mode:
+        description: "Build scope"
+        required: true
+        type: choice
+        default: full
+        options:
+          - full
+          - bootimg-only
+          - initrd-only
+      filesystem:
+        description: "Root filesystem type"
+        required: true
+        type: choice
+        default: ext4
+        options:
+          - ext4
+          - f2fs
+      installer:
+        description: "Build installer image (-o)"
+        required: true
+        type: boolean
+        default: false
+      compress:
+        description: "Compress output artifacts (-z)"
+        required: true
+        type: boolean
+        default: true
+      image_only:
+        description: "Reuse existing rootfs/installfs when present (-i)"
+        required: true
+        type: boolean
+        default: false
+      zram:
+        description: "Enable zram tag (-Z)"
+        required: true
+        type: boolean
+        default: false
+
+permissions:
+  contents: read
+
+jobs:
+  build:
+    runs-on: ubuntu-24.04
+    timeout-minutes: 240
+
+    steps:
+      - name: Checkout repository
+        uses: actions/checkout@v4
+
+      - name: Install build dependencies
+        shell: bash
+        run: |
+          set -euo pipefail
+          sudo apt-get update
+          sudo apt-get install -y \
+            debos \
+            bmap-tools \
+            xz-utils \
+            android-sdk-libsparse-utils \
+            yq \
+            mkbootimg \
+            cryptsetup \
+            f2fs-tools \
+            squashfs-tools-ng
+
+      - name: Enable F2FS kernel support
+        if: ${{ inputs.filesystem == 'f2fs' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+
+          if ! grep -qw f2fs /proc/filesystems; then
+            sudo apt-get install -y "linux-modules-extra-$(uname -r)"
+            sudo modprobe f2fs
+          fi
+
+      - name: Compose build arguments
+        id: args
+        shell: bash
+        run: |
+          set -euo pipefail
+          ARGS="-t ${{ inputs.device }} -e ${{ inputs.environment }} -F ${{ inputs.filesystem }} -v"
+          MODE="${{ inputs.build_mode }}"
+
+          if [[ "${{ inputs.installer }}" == "true" ]]; then
+            ARGS="${ARGS} -o"
+          fi
+          if [[ "${{ inputs.compress }}" == "true" ]]; then
+            ARGS="${ARGS} -z"
+          fi
+          if [[ "${{ inputs.image_only }}" == "true" ]]; then
+            ARGS="${ARGS} -i"
+          fi
+          if [[ "${{ inputs.zram }}" == "true" ]]; then
+            ARGS="${ARGS} -Z"
+          fi
+
+          if [[ "${MODE}" == "initrd-only" ]]; then
+            ARGS="${ARGS} -o"
+          fi
+
+          if [[ "${MODE}" != "full" ]]; then
+            ARGS="${ARGS} -i"
+          fi
+
+          echo "mode=${MODE}" >> "${GITHUB_OUTPUT}"
+          echo "value=${ARGS}" >> "${GITHUB_OUTPUT}"
+
+      - name: Run build
+        shell: bash
+        env:
+          BUILD_ARGS: ${{ steps.args.outputs.value }}
+        run: |
+          set -euo pipefail
+          sudo ./build.sh ${BUILD_ARGS}
+
+      - name: Collect boot image artifacts
+        if: ${{ steps.args.outputs.mode == 'bootimg-only' }}
+        shell: bash
+        run: |
+          set -euo pipefail
+          mkdir -p workflow-artifacts
+          shopt -s nullglob
+          bootimgs=(nethunterpro-*.boot-*.img)
+          if [[ ${#bootimgs[@]} -eq 0 ]]; then
+            echo "No boot image artifacts were produced; boot image generation was skipped by the build" >&2
+            exit 0
+          fi
+          cp "${bootimgs[@]}" workflow-artifacts/
+
+      - name: Collect initrd artifacts
+        if: ${{ steps.args.outputs.mode == 'initrd-only' }}
+        shell: bash
+        env:
+          DEVICE: ${{ inputs.device }}
+          ENVIRONMENT: ${{ inputs.environment }}
+        run: |
+          set -euo pipefail
+          mkdir -p workflow-artifacts
+          ROOTFS_TAR="$(ls -1t "rootfs-${DEVICE}-${ENVIRONMENT}.tar.xz" 2>/dev/null | head -n1 || true)"
+          if [[ -z "${ROOTFS_TAR}" ]]; then
+            echo "Could not find rootfs tarball for ${DEVICE}/${ENVIRONMENT}" >&2
+            exit 1
+          fi
+          INITRD_PATHS="$(tar -tJf "${ROOTFS_TAR}" | grep -E '^boot/(initrd\.img-|initramfs-).+' || true)"
+          if [[ -z "${INITRD_PATHS}" ]]; then
+            echo "No initrd/initramfs files found inside ${ROOTFS_TAR}" >&2
+            exit 1
+          fi
+          tar -xJf "${ROOTFS_TAR}" -C workflow-artifacts ${INITRD_PATHS}
+
+      - name: List generated artifacts
+        shell: bash
+        run: |
+          ls -lh nethunterpro-* || true
+          ls -lh workflow-artifacts || true
+          ls -lh workflow-artifacts/boot || true
+
+      - name: Upload full build artifacts
+        if: ${{ steps.args.outputs.mode == 'full' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nethunterpro-${{ inputs.device }}-${{ inputs.environment }}-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            nethunterpro-*.img
+            nethunterpro-*.img.xz
+            nethunterpro-*.img.bmap
+            nethunterpro-*.tar.xz
+            nethunterpro-*.sha256sums
+            nethunterpro-*.sha256sums.asc
+
+      - name: Upload boot image artifacts
+        if: ${{ steps.args.outputs.mode == 'bootimg-only' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nethunterpro-bootimg-${{ inputs.device }}-${{ inputs.environment }}-${{ github.run_number }}
+          if-no-files-found: warn
+          path: workflow-artifacts/*.boot-*.img
+
+      - name: Upload initrd artifacts
+        if: ${{ steps.args.outputs.mode == 'initrd-only' }}
+        uses: actions/upload-artifact@v4
+        with:
+          name: nethunterpro-initrd-${{ inputs.device }}-${{ inputs.environment }}-${{ github.run_number }}
+          if-no-files-found: error
+          path: |
+            workflow-artifacts/boot/initrd.img-*
+            workflow-artifacts/boot/initramfs-*.img
