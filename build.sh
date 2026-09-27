@@ -214,8 +214,8 @@ then
             printf '%s\n' "$initramfs_module" >> "${ROOTFS}/etc/initramfs-tools/modules"
     done < r8q.initramfs-modules
     nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
-    if ! [ -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
-       ! [ -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+    if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
+       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
     then
         echo "Unable to locate a bootable r8q initramfs after update-initramfs" >&2
         exit 1
