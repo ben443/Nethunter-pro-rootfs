@@ -398,14 +398,20 @@ def declared_block(source, pattern, message):
     return block_body(source, open_brace_index)
 
 
-def containing_block(source, token, message):
-    token_index = source.find(token)
-    if token_index == -1:
+def containing_block(source, pattern, message):
+    match = re.search(pattern, source, re.S)
+    if not match:
         raise SystemExit(message)
-    open_brace_index = source.rfind("{", 0, token_index)
-    if open_brace_index == -1:
-        raise SystemExit(message)
-    return block_body(source, open_brace_index)
+    depth = 0
+    for index in range(match.start() - 1, -1, -1):
+        char = source[index]
+        if char == "}":
+            depth += 1
+        elif char == "{":
+            if depth == 0:
+                return block_body(source, index)
+            depth -= 1
+    raise SystemExit(message)
 
 
 def property_cells(source, name, message):
@@ -466,7 +472,7 @@ if panel_reference[0] != panel_phandle:
 
 dispcc = containing_block(
     text,
-    '"qcom,sm8250-dispcc"',
+    r'compatible\s*=\s*"qcom,sm8250-dispcc"',
     "Missing dispcc node",
 )
 dispcc_phandle = None
