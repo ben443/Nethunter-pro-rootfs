@@ -184,53 +184,62 @@ then
     }
     (
         set -e
-        modules_file="${ROOTFS}/etc/initramfs-tools/modules"
         conf_file="${ROOTFS}/etc/initramfs-tools/conf.d/r8q-modules.conf"
-        modules_backup=""
+        hook_file="${ROOTFS}/etc/initramfs-tools/hooks/r8q-modules"
         conf_backup=""
+        hook_backup=""
 
         cleanup_r8q_initramfs_overrides() {
-            if [ -n "$modules_backup" ]
-            then
-                cp -a "$modules_backup" "$modules_file"
-            else
-                rm -f "$modules_file"
-            fi
             if [ -n "$conf_backup" ]
             then
                 cp -a "$conf_backup" "$conf_file"
             else
                 rm -f "$conf_file"
             fi
-            [ -n "$modules_backup" ] && rm -f "$modules_backup"
+            if [ -n "$hook_backup" ]
+            then
+                cp -a "$hook_backup" "$hook_file"
+            else
+                rm -f "$hook_file"
+            fi
             [ -n "$conf_backup" ] && rm -f "$conf_backup"
+            [ -n "$hook_backup" ] && rm -f "$hook_backup"
         }
 
         trap cleanup_r8q_initramfs_overrides EXIT
 
-        mkdir -p "${ROOTFS}/etc/initramfs-tools/conf.d"
-        if [ -e "$modules_file" ]
-        then
-            modules_backup="$(mktemp /tmp/r8q-initramfs-modules.XXXXXX)"
-            cp -a "$modules_file" "$modules_backup"
-        fi
+        mkdir -p "${ROOTFS}/etc/initramfs-tools/conf.d" "${ROOTFS}/etc/initramfs-tools/hooks"
         if [ -e "$conf_file" ]
         then
             conf_backup="$(mktemp /tmp/r8q-initramfs-conf.XXXXXX)"
             cp -a "$conf_file" "$conf_backup"
         fi
+        if [ -e "$hook_file" ]
+        then
+            hook_backup="$(mktemp /tmp/r8q-initramfs-hook.XXXXXX)"
+            cp -a "$hook_file" "$hook_backup"
+        fi
 
         printf '%s\n' 'MODULES=most' > "$conf_file"
-        touch "$modules_file"
-        while IFS= read -r initramfs_module
-        do
-            [ -n "$initramfs_module" ] || continue
-            case "$initramfs_module" in
-                \#*) continue ;;
-            esac
-            grep -qxF "$initramfs_module" "$modules_file" || \
-                printf '%s\n' "$initramfs_module" >> "$modules_file"
-        done < r8q.initramfs-modules
+        cat <<'EOF' > "$hook_file"
+#!/bin/sh
+set -e
+. /usr/share/initramfs-tools/hook-functions
+
+while IFS= read -r initramfs_module
+do
+    [ -n "$initramfs_module" ] || continue
+    case "$initramfs_module" in
+        \#*) continue ;;
+    esac
+    manual_add_modules "$initramfs_module"
+done <<'MODULES_EOF'
+EOF
+        cat r8q.initramfs-modules >> "$hook_file"
+        cat <<'EOF' >> "$hook_file"
+MODULES_EOF
+EOF
+        chmod 0755 "$hook_file"
 
         rm -f "${ROOTFS}/boot/initrd.img" "${ROOTFS}/boot/initramfs.img"
         nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
@@ -304,7 +313,8 @@ then
                 config_name="${expected_config%%=*}"
                 if grep -qxF "$config_name" r8q.config-modular-ok
                 then
-                    grep -Eq "^${config_name}=(y|m)$" "$KERNEL_CONFIG" || {
+                    grep -qxF "${config_name}=y" "$KERNEL_CONFIG" || \
+                    grep -qxF "${config_name}=m" "$KERNEL_CONFIG" || {
                         echo "Missing required r8q kernel config: ${config_name}=y|m" >&2
                         exit 1
                     }
@@ -329,7 +339,11 @@ then
         "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb" \
         "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
         "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
-        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/kernel/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb"
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/kernel/arch/arm64/boot/dts/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtb-${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtb-${KERNEL_VERSION}/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtbs/${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb" \
+        "${ROOTFS}/boot/dtbs/${KERNEL_VERSION}/sm8250-samsung-r8q.dtb"
     do
         if [ -f "$dtb_candidate" ]
         then
