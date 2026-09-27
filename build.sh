@@ -376,21 +376,113 @@ from pathlib import Path
 
 text = Path(sys.argv[1]).read_text(encoding="utf-8")
 
-framebuffer_checks = (
-    (r"framebuffer@9c000000\s*\{.*?power-domains\s*=\s*<&dispcc\s+MDSS_GDSC>;", "Missing r8q DT framebuffer power-domains marker"),
-    (r"framebuffer@9c000000\s*\{.*?panel\s*=\s*<&fb_panel>;", "Missing r8q DT framebuffer panel marker"),
-    (r"fb_panel:\s*panel-info\s*\{.*?width-mm\s*=\s*<68>;.*?height-mm\s*=\s*<151>;", "Missing r8q DT framebuffer panel-info size markers"),
-)
-for pattern, message in framebuffer_checks:
-    if not re.search(pattern, text, re.S):
+
+def block_body(source, open_brace_index):
+    depth = 0
+    for index in range(open_brace_index, len(source)):
+        char = source[index]
+        if char == "{":
+            depth += 1
+        elif char == "}":
+            depth -= 1
+            if depth == 0:
+                return source[open_brace_index + 1:index]
+    raise SystemExit("Malformed DTS while validating r8q DTB")
+
+
+def declared_block(source, pattern, message):
+    match = re.search(pattern, source)
+    if not match:
         raise SystemExit(message)
+    open_brace_index = source.find("{", match.start(), match.end() + 1)
+    return block_body(source, open_brace_index)
 
-match = re.search(r'"qcom,sm8250-dispcc".*?protected-clocks\s*=\s*<([^>]+)>;', text, re.S)
-if not match:
-    raise SystemExit("Missing protected-clocks property in dispcc node")
 
-clock_entries = re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))
-clock_values = {int(token, 0) for token in clock_entries}
+def containing_block(source, token, message):
+    token_index = source.find(token)
+    if token_index == -1:
+        raise SystemExit(message)
+    open_brace_index = source.rfind("{", 0, token_index)
+    if open_brace_index == -1:
+        raise SystemExit(message)
+    return block_body(source, open_brace_index)
+
+
+def property_cells(source, name, message):
+    match = re.search(rf"\b{re.escape(name)}\s*=\s*<([^>]+)>;", source, re.S)
+    if not match:
+        raise SystemExit(message)
+    return [int(token, 0) for token in re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))]
+
+
+def property_value(source, name, message):
+    cells = property_cells(source, name, message)
+    if not cells:
+        raise SystemExit(message)
+    return cells[0]
+
+
+framebuffer = declared_block(
+    text,
+    r"\bframebuffer@9c000000\s*\{",
+    "Missing r8q DT framebuffer node",
+)
+power_domains = property_cells(
+    framebuffer,
+    "power-domains",
+    "Missing r8q DT framebuffer power-domains marker",
+)
+if len(power_domains) < 2:
+    raise SystemExit("Incomplete r8q DT framebuffer power-domains marker")
+
+panel_reference = property_cells(
+    framebuffer,
+    "panel",
+    "Missing r8q DT framebuffer panel marker",
+)
+if len(panel_reference) != 1:
+    raise SystemExit("Invalid r8q DT framebuffer panel marker")
+
+panel_info = declared_block(
+    framebuffer,
+    r"(?:[A-Za-z0-9_]+\s*:\s*)?panel-info\s*\{",
+    "Missing r8q DT framebuffer panel-info node",
+)
+if property_value(panel_info, "width-mm", "Missing r8q DT framebuffer panel-info width marker") != 68:
+    raise SystemExit("Unexpected r8q DT framebuffer panel-info width marker")
+if property_value(panel_info, "height-mm", "Missing r8q DT framebuffer panel-info height marker") != 151:
+    raise SystemExit("Unexpected r8q DT framebuffer panel-info height marker")
+
+panel_phandle = None
+for phandle_name in ("phandle", "linux,phandle"):
+    match = re.search(rf"\b{re.escape(phandle_name)}\s*=\s*<([^>]+)>;", panel_info, re.S)
+    if match:
+        panel_phandle = int(re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))[0], 0)
+        break
+if panel_phandle is None:
+    raise SystemExit("Missing r8q DT framebuffer panel-info phandle")
+if panel_reference[0] != panel_phandle:
+    raise SystemExit("r8q DT framebuffer panel does not reference panel-info phandle")
+
+dispcc = containing_block(
+    text,
+    '"qcom,sm8250-dispcc"',
+    "Missing dispcc node",
+)
+dispcc_phandle = None
+for phandle_name in ("phandle", "linux,phandle"):
+    match = re.search(rf"\b{re.escape(phandle_name)}\s*=\s*<([^>]+)>;", dispcc, re.S)
+    if match:
+        dispcc_phandle = int(re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))[0], 0)
+        break
+if dispcc_phandle is None:
+    raise SystemExit("Missing dispcc phandle")
+if power_domains[0] != dispcc_phandle:
+    raise SystemExit("r8q DT framebuffer power-domains does not reference dispcc phandle")
+
+clock_values = set(
+    property_cells(dispcc, "protected-clocks", "Missing protected-clocks property in dispcc node")
+)
 missing_clocks = [str(index) for index in range(58) if index not in clock_values]
 if missing_clocks:
     raise SystemExit(
