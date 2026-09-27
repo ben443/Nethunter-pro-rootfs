@@ -48,6 +48,7 @@ Download official Kali Nethunter for PinePhone and PinePhone Pro from Kali downl
 ## r8q kernel notes
 
 - `r8q.config` is a merge-config fragment for the external mainline kernel package used with this repository's `r8q` build flow.
+- `r8q.config-modular-ok` lists the `r8q.config` entries that may be shipped as modules because the build injects them into the generated initramfs.
 - `r8q.initramfs-modules` lists the boot-critical modules that are forced into the generated initramfs when the kernel package ships them as modules instead of built-ins.
 - `patches/0001-arm64-dts-qcom-sm8250-samsung-common-r8q-display-fix.patch` is the currently required mainline DT patch to keep the firmware framebuffer alive on `r8q`.
 - This repository does not build the kernel itself; apply the patch to your kernel source and merge the config fragment before building the kernel package that installs the `r8q` DTB, kernel image, modules, and initramfs consumed by `build.sh`.

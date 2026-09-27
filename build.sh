@@ -173,18 +173,13 @@ then
                         echo "Missing required r8q firmware file: $firmware" >&2
                         exit 1
                         ;;
+                    1)
+                        source_path="$(printf "%s\n" "$candidates" | sed "/^$/d")"
+                        ;;
                     *)
-                        source_path=""
-                        while IFS= read -r candidate
-                        do
-                            [ -n "$candidate" ] || continue
-                            if [ -z "$source_path" ] || [ "${#candidate}" -lt "${#source_path}" ]
-                            then
-                                source_path="$candidate"
-                            fi
-                        done <<EOF
-$candidates
-EOF
+                        echo "Found multiple candidate firmware files for $firmware:" >&2
+                        printf "%s\n" "$candidates" | sed "/^$/d" >&2
+                        exit 1
                         ;;
                 esac
             fi
@@ -250,10 +245,29 @@ EOF
                 \#*) continue ;;
             esac
         fi
-        grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
-            echo "Missing required r8q kernel config: $expected_config" >&2
-            exit 1
-        }
+        case "$expected_config" in
+            CONFIG_*=y)
+                config_name="${expected_config%%=*}"
+                if grep -qxF "$config_name" r8q.config-modular-ok
+                then
+                    grep -Eq "^${config_name}=(y|m)$" "$KERNEL_CONFIG" || {
+                        echo "Missing required r8q kernel config: ${config_name}=y|m" >&2
+                        exit 1
+                    }
+                else
+                    grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
+                        echo "Missing required r8q kernel config: $expected_config" >&2
+                        exit 1
+                    }
+                fi
+                ;;
+            *)
+                grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
+                    echo "Missing required r8q kernel config: $expected_config" >&2
+                    exit 1
+                }
+                ;;
+        esac
     done < r8q.config
 
     DTB_PATH=""
@@ -273,17 +287,16 @@ EOF
         echo "Missing required r8q DTB artifact for kernel ${KERNEL_VERSION}" >&2
         exit 1
     }
-    (
-        DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
-        trap 'rm -f "$DTB_DTS"' EXIT
-        if command -v dtc >/dev/null 2>&1
-        then
-            dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
-        else
-            echo "Missing dtc; install device-tree-compiler to validate the r8q DT patch" >&2
-            exit 1
-        fi
-        python3 - "$DTB_DTS" <<'PY'
+    DTB_DTS="$(mktemp /tmp/r8q-dtb.XXXXXX.dts)"
+    if command -v dtc >/dev/null 2>&1
+    then
+        dtc -I dtb -O dts "$DTB_PATH" > "$DTB_DTS"
+    else
+        rm -f "$DTB_DTS"
+        echo "Missing dtc; install device-tree-compiler to validate the r8q DT patch" >&2
+        exit 1
+    fi
+    if ! python3 - "$DTB_DTS" <<'PY'
 import re
 import sys
 from pathlib import Path
@@ -356,7 +369,11 @@ clock_entries = re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))
 if len(clock_entries) != 58:
     raise SystemExit("r8q DT protected-clocks property is incomplete")
 PY
-    ) || exit 1
+    then
+        rm -f "$DTB_DTS"
+        exit 1
+    fi
+    rm -f "$DTB_DTS"
 fi
 
 echo '[+]Stage 4: Adding some extra tweaks'

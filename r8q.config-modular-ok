@@ -1,0 +1,11 @@
+# r8q.config entries that may be built as modules because build.sh forces them
+# into the regenerated initramfs via r8q.initramfs-modules.
+CONFIG_BLK_DEV_LOOP
+CONFIG_BLK_DEV_SD
+CONFIG_SCSI_UFSHCD
+CONFIG_SCSI_UFSHCD_PLATFORM
+CONFIG_SCSI_UFS_QCOM
+CONFIG_PHY_QCOM_QMP
+CONFIG_PHY_QCOM_QMP_UFS
+CONFIG_EXT4_FS
+CONFIG_F2FS_FS
