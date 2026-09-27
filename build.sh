@@ -166,8 +166,8 @@ then
                 candidates="$(find /usr/lib/firmware/qcom/sm8250 \
                     -path "$dest_dir" -prune -o \
                     -type f \
-                    -name "$firmware" -print | sort)"
-                candidate_count="$(printf "%s\n" "$candidates" | sed "/^$/d" | wc -l)"
+                    -name "$firmware" -print | LC_ALL=C sort)"
+                candidate_count="$(printf "%s\n" "$candidates" | sed "/^$/d" | awk "END { print NR + 0 }")"
                 case "$candidate_count" in
                     0)
                         echo "Missing required r8q firmware file: $firmware" >&2
