@@ -166,6 +166,7 @@ then
                 echo "Missing required r8q firmware file: $firmware" >&2
                 exit 1
             }
+            source_path="$(readlink -f "$source_path")"
             ln -srf "$source_path" "$dest_dir/$firmware"
         done
     '
