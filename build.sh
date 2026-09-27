@@ -173,13 +173,18 @@ then
                         echo "Missing required r8q firmware file: $firmware" >&2
                         exit 1
                         ;;
-                    1)
-                        source_path="$(printf "%s\n" "$candidates" | sed -n "1p")"
-                        ;;
                     *)
-                        echo "Ambiguous r8q firmware candidates for $firmware:" >&2
-                        printf "%s\n" "$candidates" >&2
-                        exit 1
+                        source_path=""
+                        while IFS= read -r candidate
+                        do
+                            [ -n "$candidate" ] || continue
+                            if [ -z "$source_path" ] || [ "${#candidate}" -lt "${#source_path}" ]
+                            then
+                                source_path="$candidate"
+                            fi
+                        done <<EOF
+$candidates
+EOF
                         ;;
                 esac
             fi
