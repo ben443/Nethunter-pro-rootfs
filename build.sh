@@ -404,6 +404,18 @@ def extract_enclosing_node_body(source, position):
     return None
 
 
+def iter_node_bodies(source):
+    stack = []
+    for index, char in enumerate(source):
+        if char == "{":
+            stack.append(index)
+        elif char == "}" and stack:
+            start = stack.pop()
+            yield source[start + 1:index]
+
+
+node_bodies = list(iter_node_bodies(text))
+
 framebuffer_match = re.search(r"framebuffer@9c000000\s*\{", text)
 if not framebuffer_match:
     raise SystemExit("Missing r8q DT framebuffer node")
@@ -418,10 +430,14 @@ power_domain_values = parse_cells(power_domains_match.group(1))
 if len(power_domain_values) < 2:
     raise SystemExit("Missing r8q DT framebuffer power-domains marker")
 
-dispcc_match = re.search(r'"qcom,sm8250-dispcc"', text)
-if not dispcc_match:
-    raise SystemExit("Missing protected-clocks property in dispcc node")
-dispcc_body = extract_enclosing_node_body(text, dispcc_match.start())
+dispcc_body = next(
+    (
+        node_body
+        for node_body in node_bodies
+        if re.search(r'compatible\s*=\s*"qcom,sm8250-dispcc";', node_body)
+    ),
+    None,
+)
 if dispcc_body is None:
     raise SystemExit("Missing protected-clocks property in dispcc node")
 dispcc_phandle_match = re.search(r"phandle\s*=\s*<([^>]+)>;", dispcc_body)
@@ -439,14 +455,18 @@ if not panel_values:
     raise SystemExit("Missing r8q DT framebuffer panel marker")
 
 panel_info_phandles = set()
-for phandle_match in re.finditer(r"phandle\s*=\s*<([^>]+)>;", text):
-    node_body = extract_enclosing_node_body(text, phandle_match.start())
-    if node_body is None:
+for node_body in node_bodies:
+    if not (
+        re.search(r"width-mm\s*=\s*<68>;", node_body)
+        and re.search(r"height-mm\s*=\s*<151>;", node_body)
+    ):
         continue
-    if re.search(r"width-mm\s*=\s*<68>;", node_body) and re.search(r"height-mm\s*=\s*<151>;", node_body):
-        phandle_values = parse_cells(phandle_match.group(1))
-        if phandle_values:
-            panel_info_phandles.add(phandle_values[0])
+    phandle_match = re.search(r"phandle\s*=\s*<([^>]+)>;", node_body)
+    if not phandle_match:
+        continue
+    phandle_values = parse_cells(phandle_match.group(1))
+    if phandle_values:
+        panel_info_phandles.add(phandle_values[0])
 if panel_values[0] not in panel_info_phandles:
     raise SystemExit("Missing r8q DT framebuffer panel-info size markers")
 
