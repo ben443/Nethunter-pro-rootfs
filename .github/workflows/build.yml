@@ -87,12 +87,23 @@ jobs:
         shell: bash
         run: |
           set -euo pipefail
-          sudo update-binfmts --enable qemu-aarch64
           sudo systemctl restart systemd-binfmt || true
           test -x /usr/bin/qemu-aarch64-static
-          binfmt_status="$(sudo update-binfmts --display qemu-aarch64)"
-          printf '%s\n' "$binfmt_status"
-          grep -q 'qemu-aarch64 (enabled)' <<<"$binfmt_status"
+          if binfmt_status="$(sudo update-binfmts --display qemu-aarch64 2>/dev/null)"; then
+            printf '%s\n' "$binfmt_status"
+            if ! grep -q 'qemu-aarch64 (enabled)' <<<"$binfmt_status"; then
+              sudo update-binfmts --enable qemu-aarch64
+              binfmt_status="$(sudo update-binfmts --display qemu-aarch64)"
+              printf '%s\n' "$binfmt_status"
+            fi
+            grep -q 'qemu-aarch64 (enabled)' <<<"$binfmt_status"
+          elif [[ -r /proc/sys/fs/binfmt_misc/qemu-aarch64 ]]; then
+            cat /proc/sys/fs/binfmt_misc/qemu-aarch64
+            grep -q '^enabled$' /proc/sys/fs/binfmt_misc/qemu-aarch64
+          else
+            echo 'qemu-aarch64 binfmt registration is unavailable' >&2
+            exit 1
+          fi
 
       - name: Run build
         shell: bash
