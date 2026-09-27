@@ -40,9 +40,7 @@ resolve_kernel_version() {
         [ -f "${kernel_path}" ] || continue
         version="${kernel_path#/boot/vmlinuz-}"
         if [ -f "/boot/initrd.img-${version}" ] || \
-           [ -f "/boot/initramfs-${version}.img" ] || \
-           [ -f "/boot/initrd.img" ] || \
-           [ -f "/boot/initramfs.img" ]
+           [ -f "/boot/initramfs-${version}.img" ]
         then
             printf '%s\n' "${version}"
         fi
@@ -51,7 +49,7 @@ resolve_kernel_version() {
 
 resolve_ramdisk_path() {
     version="$1"
-    for candidate in "/boot/initrd.img-${version}" "/boot/initramfs-${version}.img" "/boot/initrd.img" "/boot/initramfs.img"; do
+    for candidate in "/boot/initrd.img-${version}" "/boot/initramfs-${version}.img"; do
         [ -f "${candidate}" ] && printf '%s\n' "${candidate}" && return 0
     done
     return 1

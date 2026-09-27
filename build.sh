@@ -159,26 +159,11 @@ then
         for firmware in adsp.mbn cdsp.mbn slpi.mbn
         do
             preferred_path="/usr/lib/firmware/qcom/sm8250/$firmware"
-            if [ -f "$preferred_path" ]
-            then
-                source_path="$preferred_path"
-            else
-                candidates="$(find /usr/lib/firmware/qcom/sm8250 \
-                    -path "$dest_dir" -prune -o \
-                    -type f \
-                    -name "$firmware" -print | LC_ALL=C sort)"
-                filtered_candidates="$(printf "%s\n" "$candidates" | sed "/^$/d")"
-                candidate_count="$(printf "%s\n" "$filtered_candidates" | awk "END { print NR + 0 }")"
-                case "$candidate_count" in
-                    0)
-                        echo "Missing required r8q firmware file: $firmware" >&2
-                        exit 1
-                        ;;
-                    *)
-                        source_path="$(printf "%s\n" "$filtered_candidates" | head -n1)"
-                        ;;
-                esac
-            fi
+            [ -f "$preferred_path" ] || {
+                echo "Missing required r8q firmware file: $preferred_path" >&2
+                exit 1
+            }
+            source_path="$preferred_path"
             source_path="$(readlink -f "$source_path")"
             rm -f "$dest_dir/$firmware"
             ln -srf "$source_path" "$dest_dir/$firmware"
@@ -248,39 +233,35 @@ then
         done < r8q.initramfs-modules
 
         nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
-        if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
-           [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
-        then
-            nspawn-exec sh -eu -c '
-                version="$1"
-                stage_dir="/tmp/r8q-initramfs-stage"
-                rm -rf "$stage_dir"
-                mkdir -p "$stage_dir"
-                trap '\''rm -rf "$stage_dir"'\'' EXIT
-                update-initramfs -c -k "$version" -b "$stage_dir"
-                for candidate in \
-                    "$stage_dir/initrd.img-$version" \
-                    "$stage_dir/initramfs-$version.img" \
-                    "$stage_dir/initrd.img" \
-                    "$stage_dir/initramfs.img"
-                do
-                    [ -f "$candidate" ] || continue
-                    case "${candidate##*/}" in
-                        initrd.img|initrd.img-*)
-                            destination="/boot/initrd.img-$version"
-                            ;;
-                        initramfs.img|initramfs-*.img)
-                            destination="/boot/initramfs-$version.img"
-                            ;;
-                    esac
-                    rm -rf "$destination"
-                    cp -a "$candidate" "$destination"
-                    exit 0
-                done
-                echo "Unable to create a versioned r8q initramfs for kernel $version" >&2
-                exit 1
-            ' sh "$KERNEL_VERSION"
-        fi
+        nspawn-exec sh -eu -c '
+            version="$1"
+            stage_dir="/tmp/r8q-initramfs-stage"
+            rm -rf "$stage_dir"
+            mkdir -p "$stage_dir"
+            trap '\''rm -rf "$stage_dir"'\'' EXIT
+            update-initramfs -c -k "$version" -b "$stage_dir"
+            for candidate in \
+                "$stage_dir/initrd.img-$version" \
+                "$stage_dir/initramfs-$version.img" \
+                "$stage_dir/initrd.img" \
+                "$stage_dir/initramfs.img"
+            do
+                [ -f "$candidate" ] || continue
+                case "${candidate##*/}" in
+                    initrd.img|initrd.img-*)
+                        destination="/boot/initrd.img-$version"
+                        ;;
+                    initramfs.img|initramfs-*.img)
+                        destination="/boot/initramfs-$version.img"
+                        ;;
+                esac
+                rm -rf "$destination"
+                cp -a "$candidate" "$destination"
+                exit 0
+            done
+            echo "Unable to create a versioned r8q initramfs for kernel $version" >&2
+            exit 1
+        ' sh "$KERNEL_VERSION"
         if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
            [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
         then
@@ -452,8 +433,13 @@ if not match:
     raise SystemExit("Missing protected-clocks property in dispcc node")
 
 clock_entries = re.findall(r"0x[0-9a-fA-F]+|\d+", match.group(1))
-if not clock_entries:
-    raise SystemExit("r8q DT protected-clocks property is empty")
+clock_values = {int(token, 0) for token in clock_entries}
+missing_clocks = [str(index) for index in range(58) if index not in clock_values]
+if missing_clocks:
+    raise SystemExit(
+        "r8q DT protected-clocks property is missing required clock ids: "
+        + ", ".join(missing_clocks)
+    )
 PY
     then
         rm -f "$DTB_DTS"
