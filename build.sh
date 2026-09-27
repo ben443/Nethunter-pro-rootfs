@@ -50,7 +50,7 @@ case "$device" in
     PACKAGES="pulseaudio yq qbootctl"
     PARTITIONS=1
     SPARSE=1
-    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc"
+    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc firmware-atheros"
     ;;
   "nothingphone1"|"sm7325" )
     arch="arm64"
@@ -187,6 +187,48 @@ then
             ln -srf "$source_path" "$dest_dir/$firmware"
         done
     '
+
+    echo '[*]Validating r8q kernel config and DT patch markers'
+    KERNEL_VERSION="$(nspawn-exec sh -c 'linux-version list | tail -1')"
+    KERNEL_CONFIG=""
+    for config_path in \
+        "${ROOTFS}/boot/config-${KERNEL_VERSION}" \
+        "${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/config" \
+        "${ROOTFS}/usr/lib/modules/${KERNEL_VERSION}/config"
+    do
+        if [ -f "$config_path" ]
+        then
+            KERNEL_CONFIG="$config_path"
+            break
+        fi
+    done
+    [ -n "$KERNEL_CONFIG" ] || {
+        echo "Unable to locate kernel config for r8q kernel ${KERNEL_VERSION}" >&2
+        exit 1
+    }
+    while IFS= read -r expected_config
+    do
+        case "$expected_config" in
+            ''|\#*) continue ;;
+        esac
+        grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
+            echo "Missing required r8q kernel config: $expected_config" >&2
+            exit 1
+        }
+    done < r8q.config
+
+    DTB_PATH="${ROOTFS}/usr/lib/linux-image-${KERNEL_VERSION}/qcom/sm8250-samsung-r8q.dtb"
+    [ -f "$DTB_PATH" ] || {
+        echo "Missing required r8q DTB artifact: ${DTB_PATH}" >&2
+        exit 1
+    }
+    for dtb_marker in protected-clocks panel-info width-mm height-mm
+    do
+        grep -aq "$dtb_marker" "$DTB_PATH" || {
+            echo "r8q DT patch marker '${dtb_marker}' not found in ${DTB_PATH}" >&2
+            exit 1
+        }
+    done
 fi
 
 echo '[+]Stage 4: Adding some extra tweaks'
