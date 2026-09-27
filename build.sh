@@ -175,7 +175,7 @@ then
                     if [ "$search_dir" != "$dest_dir" ]
                     then
                         candidate="$(
-                            find "$search_dir" -mindepth 2 -maxdepth 4 -type f -name "$firmware" -print \
+                            find "$search_dir" -mindepth 1 -maxdepth 4 -type f -name "$firmware" -print \
                                 | LC_ALL=C sort \
                                 | head -n 1
                         )"
