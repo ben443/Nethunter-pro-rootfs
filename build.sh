@@ -167,18 +167,19 @@ then
                     -path "$dest_dir" -prune -o \
                     -type f \
                     -name "$firmware" -print | LC_ALL=C sort)"
-                candidate_count="$(printf "%s\n" "$candidates" | sed "/^$/d" | awk "END { print NR + 0 }")"
+                filtered_candidates="$(printf "%s\n" "$candidates" | sed "/^$/d")"
+                candidate_count="$(printf "%s\n" "$filtered_candidates" | awk "END { print NR + 0 }")"
                 case "$candidate_count" in
                     0)
                         echo "Missing required r8q firmware file: $firmware" >&2
                         exit 1
                         ;;
                     1)
-                        source_path="$(printf "%s\n" "$candidates" | sed "/^$/d")"
+                        source_path="$filtered_candidates"
                         ;;
                     *)
                         echo "Found multiple candidate firmware files for $firmware:" >&2
-                        printf "%s\n" "$candidates" | sed "/^$/d" >&2
+                        printf "%s\n" "$filtered_candidates" >&2
                         exit 1
                         ;;
                 esac
@@ -213,6 +214,10 @@ then
         grep -qxF "$initramfs_module" "${ROOTFS}/etc/initramfs-tools/modules" || \
             printf '%s\n' "$initramfs_module" >> "${ROOTFS}/etc/initramfs-tools/modules"
     done < r8q.initramfs-modules
+    INITRD_GENERIC_MTIME=""
+    INITRAMFS_GENERIC_MTIME=""
+    [ -e "${ROOTFS}/boot/initrd.img" ] && INITRD_GENERIC_MTIME="$(stat -c %Y "${ROOTFS}/boot/initrd.img")"
+    [ -e "${ROOTFS}/boot/initramfs.img" ] && INITRAMFS_GENERIC_MTIME="$(stat -c %Y "${ROOTFS}/boot/initramfs.img")"
     nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
     if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
        [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ] && \
@@ -220,6 +225,35 @@ then
        [ ! -f "${ROOTFS}/boot/initramfs.img" ]
     then
         echo "Unable to locate a bootable r8q initramfs after update-initramfs" >&2
+        exit 1
+    fi
+    if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
+       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+    then
+        for generic_ramdisk in initrd.img initramfs.img
+        do
+            generic_path="${ROOTFS}/boot/${generic_ramdisk}"
+            [ -f "$generic_path" ] || continue
+            current_mtime="$(stat -c %Y "$generic_path")"
+            case "$generic_ramdisk" in
+                initrd.img)
+                    previous_mtime="$INITRD_GENERIC_MTIME"
+                    ;;
+                initramfs.img)
+                    previous_mtime="$INITRAMFS_GENERIC_MTIME"
+                    ;;
+            esac
+            if [ -z "$previous_mtime" ] || [ "$current_mtime" != "$previous_mtime" ]
+            then
+                ln -srf "$(readlink -f "$generic_path")" "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}"
+                break
+            fi
+        done
+    fi
+    if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
+       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+    then
+        echo "Unable to match a regenerated initramfs to r8q kernel ${KERNEL_VERSION}" >&2
         exit 1
     fi
     KERNEL_CONFIG=""
