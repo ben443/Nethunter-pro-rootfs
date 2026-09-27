@@ -50,7 +50,7 @@ case "$device" in
     PACKAGES="pulseaudio yq qbootctl"
     PARTITIONS=1
     SPARSE=1
-    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc firmware-atheros"
+    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc firmware-qcom-modem firmware-atheros"
     ;;
   "nothingphone1"|"sm7325" )
     arch="arm64"
@@ -153,29 +153,47 @@ nspawn-exec apt install -y ${DPACKAGES}
 if [ "$device" = "r8q" ]
 then
     echo '[*]Preparing r8q firmware paths expected by the mainline device tree'
-    nspawn-exec sh -eu -c '
-        dest_dir=/usr/lib/firmware/qcom/sm8250/Samsung/r8q
-        mkdir -p "$dest_dir"
-        for firmware in adsp.mbn cdsp.mbn slpi.mbn
-        do
-            preferred_path="/usr/lib/firmware/qcom/sm8250/$firmware"
-            source_path="$preferred_path"
-            if [ ! -f "$source_path" ]; then
-                source_path="$(
-                    find /usr/lib/firmware/qcom/sm8250 -mindepth 1 -maxdepth 4 -type f -name "$firmware" -print \
-                        | LC_ALL=C sort \
-                        | head -n 1
-                )"
-            fi
-            [ -n "$source_path" ] && [ -f "$source_path" ] || {
-                echo "Missing required r8q firmware file: $preferred_path" >&2
+    prepare_r8q_firmware_paths() {
+        nspawn-exec sh -eu -c '
+            dest_dir=/usr/lib/firmware/qcom/sm8250/Samsung/r8q
+            mkdir -p "$dest_dir"
+            missing=""
+            for firmware in adsp.mbn cdsp.mbn slpi.mbn
+            do
+                source_path=""
+                for search_dir in \
+                    /usr/lib/firmware/qcom/sm8250 \
+                    /lib/firmware/qcom/sm8250 \
+                    "$dest_dir"
+                do
+                    candidate="$search_dir/$firmware"
+                    if [ -f "$candidate" ]
+                    then
+                        source_path="$candidate"
+                        break
+                    fi
+                done
+                if [ -z "$source_path" ]
+                then
+                    missing="${missing}${missing:+ }$firmware"
+                    continue
+                fi
+                source_path="$(readlink -f "$source_path")"
+                rm -f "$dest_dir/$firmware"
+                ln -srf "$source_path" "$dest_dir/$firmware"
+            done
+            [ -z "$missing" ] || {
+                echo "Missing required r8q firmware file(s) after searching /usr/lib/firmware/qcom/sm8250, /lib/firmware/qcom/sm8250, and ${dest_dir}: ${missing}" >&2
                 exit 1
             }
-            source_path="$(readlink -f "$source_path")"
-            rm -f "$dest_dir/$firmware"
-            ln -srf "$source_path" "$dest_dir/$firmware"
-        done
-    '
+        '
+    }
+    if ! prepare_r8q_firmware_paths
+    then
+        echo '[*]Retrying r8q firmware install from explicit Qualcomm firmware packages'
+        nspawn-exec apt install -y firmware-qcom-soc firmware-qcom-modem firmware-atheros
+        prepare_r8q_firmware_paths
+    fi
 
     echo '[*]Validating r8q kernel config and DT patch markers'
     KERNEL_VERSION="$(
