@@ -116,13 +116,19 @@ jobs:
         run: |
           set -euo pipefail
           mkdir -p workflow-artifacts
-          shopt -s nullglob
+          patterns=(
+            'kali_${{ inputs.environment }}_${{ inputs.device }}_*.img'
+            'kali_${{ inputs.environment }}_${{ inputs.device }}_*.img.xz'
+            'kali_${{ inputs.environment }}_${{ inputs.device }}_*.bmap'
+            'kali_${{ inputs.environment }}_${{ inputs.device }}_*.tgz'
+            'rootfs-${{ inputs.device }}-${{ inputs.environment }}*.tar.xz'
+          )
           artifacts=()
-          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.img )
-          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.img.xz )
-          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.bmap )
-          artifacts+=( kali_${{ inputs.environment }}_${{ inputs.device }}_*.tgz )
-          artifacts+=( rootfs-${{ inputs.device }}-${{ inputs.environment }}*.tar.xz )
+          for pattern in "${patterns[@]}"; do
+            while IFS= read -r match; do
+              artifacts+=("$match")
+            done < <(compgen -G "$pattern" || true)
+          done
           if (( ${#artifacts[@]} == 0 )); then
             echo 'No build artifacts were generated.' >&2
             exit 1
