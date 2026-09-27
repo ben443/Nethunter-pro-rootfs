@@ -27,6 +27,9 @@ do
     esac
 done
 
+BOOTLOADER_DEVICE="$device"
+DEVICE_PACKAGES=""
+
 case "$device" in
   "pinephone"|"pinetab"|"sunxi" )
     arch="arm64"
@@ -40,13 +43,14 @@ case "$device" in
     SERVICES="eg25-manager"
     PACKAGES="megapixels megapixels-config-pinephonepro"
     ;;
-  "pocof1"|"oneplus6"|"oneplus6t"|"sdm845"|"qcom"|"sm8250"| )
+  "pocof1"|"oneplus6"|"oneplus6t"|"sdm845"|"qcom"|"sm8250"|"r8q" )
     arch="arm64"
     family="qcom"
     SERVICES="qrtr-ns rmtfs pd-mapper tqftpserv qcom-modem-setup droid-juicer"
     PACKAGES="pulseaudio yq qbootctl"
     PARTITIONS=1
     SPARSE=1
+    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc"
     ;;
   "nothingphone1"|"sm7325" )
     arch="arm64"
@@ -64,6 +68,7 @@ esac
 
 PACKAGES="${PACKAGES} kali-linux-core wget vim binutils rsync systemd-timesyncd systemd-repart"
 DPACKAGES="${family}-support"
+[ -n "${DEVICE_PACKAGES}" ] && DPACKAGES="${DPACKAGES} ${DEVICE_PACKAGES}"
 
 case "${environment}" in
     phosh)
@@ -209,9 +214,10 @@ then
     #nspawn-exec sudo -u ${username} systemctl --user disable pipewire pipewire-pulse
     #nspawn-exec sudo -u ${username} systemctl --user mask pipewire pipewire-pulse
     #nspawn-exec sudo -u ${username} systemctl --user enable pulseaudio
+    [ -f "bin/configs/${BOOTLOADER_DEVICE}.toml" ] || BOOTLOADER_DEVICE="${family}"
     cp -r bin/bootloader.sh bin/configs ${ROOTFS}
     chmod +x ${ROOTFS}/bootloader.sh
-    nspawn-exec /bootloader.sh ${family}
+    nspawn-exec /bootloader.sh ${BOOTLOADER_DEVICE}
     mv -v ${ROOTFS}/boot*img .
     rm -rf ${ROOTFS}/bootloader.sh ${ROOTFS}/configs
 fi
@@ -251,4 +257,3 @@ else
     echo '[*]Skipped compression'
 fi
 echo '[+]Image Generated.'
-
