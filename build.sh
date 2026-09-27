@@ -159,11 +159,18 @@ then
         for firmware in adsp.mbn cdsp.mbn slpi.mbn
         do
             preferred_path="/usr/lib/firmware/qcom/sm8250/$firmware"
-            [ -f "$preferred_path" ] || {
+            source_path="$preferred_path"
+            if [ ! -f "$source_path" ]; then
+                source_path="$(
+                    find /usr/lib/firmware/qcom/sm8250 -mindepth 1 -maxdepth 4 -type f -name "$firmware" -print \
+                        | LC_ALL=C sort \
+                        | head -n 1
+                )"
+            fi
+            [ -n "$source_path" ] && [ -f "$source_path" ] || {
                 echo "Missing required r8q firmware file: $preferred_path" >&2
                 exit 1
             }
-            source_path="$preferred_path"
             source_path="$(readlink -f "$source_path")"
             rm -f "$dest_dir/$firmware"
             ln -srf "$source_path" "$dest_dir/$firmware"
