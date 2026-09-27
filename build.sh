@@ -215,7 +215,8 @@ then
     done < r8q.initramfs-modules
     nspawn-exec update-initramfs -u -k "$KERNEL_VERSION"
     if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
-       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ]
+       [ ! -f "${ROOTFS}/boot/initramfs-${KERNEL_VERSION}.img" ] && \
+       [ ! -f "${ROOTFS}/boot/initrd.img" ]
     then
         echo "Unable to locate a bootable r8q initramfs after update-initramfs" >&2
         exit 1
@@ -239,13 +240,16 @@ then
     while IFS= read -r expected_config
     do
         [ -n "$expected_config" ] || continue
-        if ! echo "$expected_config" | grep -q '^# CONFIG_.* is not set$'
-        then
-            case "$expected_config" in
-                \#*) continue ;;
-            esac
-        fi
         case "$expected_config" in
+            '# CONFIG_'*' is not set')
+                grep -qxF "$expected_config" "$KERNEL_CONFIG" || {
+                    echo "Missing required r8q kernel config: $expected_config" >&2
+                    exit 1
+                }
+                ;;
+            \#*)
+                continue
+                ;;
             CONFIG_*=y)
                 config_name="${expected_config%%=*}"
                 if grep -qxF "$config_name" r8q.config-modular-ok
