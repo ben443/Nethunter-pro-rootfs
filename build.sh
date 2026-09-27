@@ -260,7 +260,7 @@ then
         }
         if [ "$staged_ramdisk" != "$staged_destination" ]
         then
-            rm -rf "$staged_destination"
+            rm -f "$staged_destination"
             cp -a "$staged_ramdisk" "$staged_destination"
         fi
         if [ ! -f "${ROOTFS}/boot/initrd.img-${KERNEL_VERSION}" ] && \
