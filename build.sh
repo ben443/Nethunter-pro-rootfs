@@ -50,7 +50,7 @@ case "$device" in
     PACKAGES="pulseaudio yq qbootctl"
     PARTITIONS=1
     SPARSE=1
-    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc firmware-qcom-modem firmware-atheros"
+    [ "$device" = "r8q" ] && DEVICE_PACKAGES="firmware-qcom-soc firmware-atheros"
     ;;
   "nothingphone1"|"sm7325" )
     arch="arm64"
@@ -205,7 +205,7 @@ then
     then
         echo '[*]Retrying r8q firmware install from explicit Qualcomm firmware packages'
         nspawn-exec apt update
-        nspawn-exec apt install -y firmware-qcom-soc firmware-qcom-modem firmware-atheros
+        nspawn-exec apt install -y firmware-qcom-soc firmware-atheros
         prepare_r8q_firmware_paths
     fi
 
