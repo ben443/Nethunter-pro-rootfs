@@ -68,6 +68,7 @@ esac
 
 PACKAGES="${PACKAGES} kali-linux-core wget vim binutils rsync systemd-timesyncd systemd-repart"
 DPACKAGES="${family}-support"
+[ "$device" = "r8q" ] && DPACKAGES="linux-image-arm64 qcom-support-common"
 [ -n "${DEVICE_PACKAGES}" ] && DPACKAGES="${DPACKAGES} ${DEVICE_PACKAGES}"
 
 case "${environment}" in
@@ -243,6 +244,7 @@ then
             fi
             [ -n "$conf_backup" ] && rm -f "$conf_backup"
             [ -n "$hook_backup" ] && rm -f "$hook_backup"
+            return 0
         }
 
         trap cleanup_r8q_initramfs_overrides EXIT
